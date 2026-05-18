@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>我的 DeepSeek 聊天助手</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f5f6fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            width: 850px;
+            margin: 40px auto;
+            background: white;
+            border-radius: 14px;
+            padding: 24px;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        #chat-box {
+            height: 460px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 16px;
+            border-radius: 10px;
+            background: #fafafa;
+            margin-bottom: 16px;
+        }
+
+        .message {
+            margin-bottom: 14px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+        }
+
+        .user-message {
+            background: #e8f0fe;
+            padding: 10px 14px;
+            border-radius: 10px;
+        }
+
+        .ai-message {
+            background: #f1f3f4;
+            padding: 10px 14px;
+            border-radius: 10px;
+        }
+
+        .role {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .input-area {
+            display: flex;
+            gap: 10px;
+        }
+
+        input {
+            flex: 1;
+            padding: 12px;
+            font-size: 16px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            padding: 12px 22px;
+            font-size: 16px;
+            border: none;
+            border-radius: 8px;
+            background: #1a73e8;
+            color: white;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #1558b0;
+        }
+
+        .clear-btn {
+            background: #777;
+        }
+
+        .clear-btn:hover {
+            background: #555;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>我的 DeepSeek 聊天助手</h1>
+
+    <div id="chat-box"></div>
+
+    <div class="input-area">
+        <input id="user-input" type="text" placeholder="请输入你的问题">
+        <button onclick="sendMessage()">发送</button>
+        <button class="clear-btn" onclick="clearChat()">清空</button>
+    </div>
+</div>
+
+<script>
+    let messages = [];
+
+    function addMessage(role, content) {
+        const chatBox = document.getElementById("chat-box");
+
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "message";
+
+        if (role === "user") {
+            messageDiv.classList.add("user-message");
+            messageDiv.innerHTML = `<div class="role">你：</div>`;
+        } else {
+            messageDiv.classList.add("ai-message");
+            messageDiv.innerHTML = `<div class="role">AI：</div>`;
+        }
+
+        const contentDiv = document.createElement("div");
+        contentDiv.textContent = content;
+
+        messageDiv.appendChild(contentDiv);
+        chatBox.appendChild(messageDiv);
+
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById("user-input");
+        const message = input.value.trim();
+
+        if (!message) {
+            alert("请输入内容");
+            return;
+        }
+
+        addMessage("user", message);
+
+        messages.push({
+            role: "user",
+            content: message
+        });
+
+        input.value = "";
+
+        addMessage("assistant", "正在思考中...");
+
+        try {
+            const response = await fetch("/api/chat", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    messages: messages
+                })
+            });
+
+            const data = await response.json();
+
+            const chatBox = document.getElementById("chat-box");
+            chatBox.removeChild(chatBox.lastChild);
+
+            addMessage("assistant", data.reply);
+
+            messages.push({
+                role: "assistant",
+                content: data.reply
+            });
+
+        } catch (error) {
+            const chatBox = document.getElementById("chat-box");
+            chatBox.removeChild(chatBox.lastChild);
+
+            addMessage("assistant", "请求失败：" + error);
+        }
+    }
+
+    function clearChat() {
+        messages = [];
+        document.getElementById("chat-box").innerHTML = "";
+    }
+
+    document.getElementById("user-input").addEventListener("keydown", function(event) {
+        if (event.key === "Enter") {
+            sendMessage();
+        }
+    });
+</script>
+
+</body>
+</html>
