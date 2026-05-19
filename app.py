@@ -1,4 +1,5 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+import json
 from dotenv import load_dotenv
 import os
 import httpx
@@ -161,6 +162,82 @@ def chat():
         return jsonify({"reply": f"程序报错：{str(e)}"}), 500
 
 
+@app.route("/api/chat/stream", methods=["POST"])
+def chat_stream():
+    if not API_KEY:
+        return Response("没有读取到 DEEPSEEK_API_KEY，请检查 .env 文件", mimetype="text/plain")
+
+    data_from_frontend = request.get_json()
+    user_msg = data_from_frontend.get("message", "").strip()
+
+    if not user_msg:
+        return Response("消息不能为空", mimetype="text/plain")
+
+    save_message("user", user_msg)
+
+    history_messages = get_messages(limit=20)
+
+    system_message = {
+        "role": "system",
+        "content": "你是一个耐心、清晰、适合大学生学习使用的 AI 助手。回答要简洁、有条理。"
+    }
+
+    payload = {
+        "model": "deepseek-v4-flash",
+        "messages": [system_message] + history_messages,
+        "stream": True
+    }
+
+    url = "https://api.deepseek.com/chat/completions"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {API_KEY}"
+    }
+
+    def generate():
+        full_reply = ""
+
+        try:
+            with httpx.Client(timeout=60, trust_env=False) as client:
+                with client.stream("POST", url, headers=headers, json=payload) as response:
+                    if response.status_code != 200:
+                        yield "API 请求失败"
+                        return
+
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+
+                        if line.startswith("data: "):
+                            line = line.replace("data: ", "")
+
+                        if line == "[DONE]":
+                            break
+
+                        try:
+                            data = json.loads(line)
+                            delta = data["choices"][0]["delta"]
+
+                            content = delta.get("content", "")
+
+                            if content:
+                                full_reply += content
+                                yield content
+
+                        except Exception:
+                            continue
+
+            if full_reply:
+                save_message("assistant", full_reply)
+
+        except Exception as e:
+            yield f"程序报错：{str(e)}"
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/plain; charset=utf-8"
+    )
 @app.route("/api/clear", methods=["POST"])
 def clear():
     clear_messages()

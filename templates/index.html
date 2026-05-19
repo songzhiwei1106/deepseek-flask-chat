@@ -215,44 +215,73 @@
     }
 
     async function sendMessage() {
-        const input = document.getElementById("user-input");
-        const message = input.value.trim();
+    const input = document.getElementById("user-input");
+    const message = input.value.trim();
 
-        if (!message) {
-            alert("请输入内容");
-            return;
-        }
-
-        addMessage("user", message);
-        input.value = "";
-
-        addMessage("assistant", "正在思考中...");
-
-        try {
-            const response = await fetch("/api/chat", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    message: message
-                })
-            });
-
-            const data = await response.json();
-
-            const chatBox = document.getElementById("chat-box");
-            chatBox.removeChild(chatBox.lastChild);
-
-            addMessage("assistant", data.reply);
-
-        } catch (error) {
-            const chatBox = document.getElementById("chat-box");
-            chatBox.removeChild(chatBox.lastChild);
-
-            addMessage("assistant", "请求失败：" + error);
-        }
+    if (!message) {
+        alert("请输入内容");
+        return;
     }
+
+    addMessage("user", message);
+    input.value = "";
+
+    const chatBox = document.getElementById("chat-box");
+
+    const messageDiv = document.createElement("div");
+    messageDiv.className = "message ai-message";
+    messageDiv.innerHTML = `<div class="role">AI：</div>`;
+
+    const contentDiv = document.createElement("div");
+    contentDiv.className = "content";
+    contentDiv.textContent = "";
+
+    messageDiv.appendChild(contentDiv);
+    chatBox.appendChild(messageDiv);
+    chatBox.scrollTop = chatBox.scrollHeight;
+
+    try {
+        const response = await fetch("/api/chat/stream", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                message: message
+            })
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+
+        let fullText = "";
+
+        while (true) {
+            const { value, done } = await reader.read();
+
+            if (done) {
+                break;
+            }
+
+            const chunk = decoder.decode(value, { stream: true });
+            fullText += chunk;
+
+            contentDiv.textContent = fullText;
+            chatBox.scrollTop = chatBox.scrollHeight;
+        }
+
+        contentDiv.innerHTML = renderMarkdown(fullText);
+
+        messageDiv.querySelectorAll("pre code").forEach((block) => {
+            if (window.hljs) {
+                hljs.highlightElement(block);
+            }
+        });
+
+    } catch (error) {
+        contentDiv.textContent = "请求失败：" + error;
+    }
+}
 
     async function clearChat() {
         await fetch("/api/clear", {
