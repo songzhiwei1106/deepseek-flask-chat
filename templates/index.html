@@ -3,6 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <title>我的 DeepSeek 聊天助手</title>
+
+    <!-- Markdown 渲染库 -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- 防止 HTML 注入的安全库 -->
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+
+    <!-- 代码高亮库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -38,7 +48,6 @@
         .message {
             margin-bottom: 14px;
             line-height: 1.7;
-            white-space: pre-wrap;
         }
 
         .user-message {
@@ -55,7 +64,37 @@
 
         .role {
             font-weight: bold;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
+        }
+
+        .content {
+            word-break: break-word;
+        }
+
+        .content p {
+            margin: 8px 0;
+        }
+
+        .content ul,
+        .content ol {
+            padding-left: 24px;
+        }
+
+        .content pre {
+            background: #f6f8fa;
+            padding: 12px;
+            border-radius: 8px;
+            overflow-x: auto;
+        }
+
+        .content code {
+            font-family: Consolas, Monaco, monospace;
+        }
+
+        .content :not(pre) > code {
+            background: #eee;
+            padding: 2px 5px;
+            border-radius: 4px;
         }
 
         .time {
@@ -115,6 +154,11 @@
 </div>
 
 <script>
+    function renderMarkdown(content) {
+        const rawHtml = marked.parse(content);
+        return DOMPurify.sanitize(rawHtml);
+    }
+
     function addMessage(role, content, createdAt = "") {
         const chatBox = document.getElementById("chat-box");
 
@@ -130,7 +174,14 @@
         }
 
         const contentDiv = document.createElement("div");
-        contentDiv.textContent = content;
+        contentDiv.className = "content";
+
+        if (role === "assistant") {
+            contentDiv.innerHTML = renderMarkdown(content);
+        } else {
+            contentDiv.textContent = content;
+        }
+
         messageDiv.appendChild(contentDiv);
 
         if (createdAt) {
@@ -141,6 +192,13 @@
         }
 
         chatBox.appendChild(messageDiv);
+
+       if (window.hljs) {
+    messageDiv.querySelectorAll("pre code").forEach((block) => {
+        hljs.highlightElement(block);
+    });
+}
+
         chatBox.scrollTop = chatBox.scrollHeight;
     }
 
