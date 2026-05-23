@@ -537,9 +537,10 @@ def chat_stream():
     )
 
 
-if __name__ == "__main__":
-    init_db()
+init_db()
 
+
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
 
     app.run(
