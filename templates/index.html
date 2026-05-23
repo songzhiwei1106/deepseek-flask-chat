@@ -429,6 +429,73 @@
                 padding: 14px;
             }
         }
+    .knowledge-panel {
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.knowledge-title {
+    font-size: 14px;
+    color: var(--muted);
+}
+
+.document-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
+.document-item {
+    border: 1px solid var(--border);
+    background: var(--main-bg);
+    border-radius: 10px;
+    padding: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+.document-info {
+    overflow: hidden;
+    flex: 1;
+}
+
+.document-name {
+    font-size: 13px;
+    font-weight: bold;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.document-meta {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 3px;
+}
+
+.delete-document {
+    border: none;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.delete-document:hover {
+    color: #ef4444;
+}
+
+.empty-document {
+    font-size: 12px;
+    color: var(--muted);
+}
     </style>
 </head>
 <body>
@@ -444,6 +511,23 @@
 
         <div class="session-title">会话列表</div>
         <div class="session-list" id="session-list"></div>
+        <div class="knowledge-panel">
+    <div class="knowledge-title">知识库文档</div>
+
+    <input
+        type="file"
+        id="document-file"
+        accept=".txt,.md"
+        style="display: none;"
+        onchange="uploadDocument()"
+    >
+
+    <button class="side-btn" onclick="document.getElementById('document-file').click()">
+        上传 txt / md
+    </button>
+
+    <div class="document-list" id="document-list"></div>
+</div>
 
         <div class="side-actions">
             <button class="side-btn" id="theme-btn" onclick="toggleTheme()">切换深色模式</button>
@@ -473,16 +557,18 @@
 </div>
 
 <script>
-    const chatBox = document.getElementById("chat-box");
-    const input = document.getElementById("user-input");
-    const sendBtn = document.getElementById("send-btn");
-    const statusText = document.getElementById("status");
-    const themeBtn = document.getElementById("theme-btn");
-    const sessionList = document.getElementById("session-list");
-    const currentSessionTitle = document.getElementById("current-session-title");
+const chatBox = document.getElementById("chat-box");
+const input = document.getElementById("user-input");
+const sendBtn = document.getElementById("send-btn");
+const statusText = document.getElementById("status");
+const themeBtn = document.getElementById("theme-btn");
+const sessionList = document.getElementById("session-list");
+const currentSessionTitle = document.getElementById("current-session-title");
+const documentList = document.getElementById("document-list");
 
-    let currentSessionId = null;
-    let sessions = [];
+let currentSessionId = null;
+let sessions = [];
+let documents = [];
 
     function updateStatus(text) {
         statusText.textContent = text;
@@ -810,6 +896,119 @@
         }
     }
 
+    async function loadDocuments() {
+    try {
+        const response = await fetch("/api/documents");
+        const data = await response.json();
+
+        documents = data.documents || [];
+        renderDocuments();
+
+    } catch (error) {
+        console.error("文档列表加载失败：", error);
+    }
+}
+
+function renderDocuments() {
+    documentList.innerHTML = "";
+
+    if (!documents || documents.length === 0) {
+        documentList.innerHTML = `<div class="empty-document">暂无文档</div>`;
+        return;
+    }
+
+    documents.forEach(doc => {
+        const item = document.createElement("div");
+        item.className = "document-item";
+
+        const info = document.createElement("div");
+        info.className = "document-info";
+
+        const name = document.createElement("div");
+        name.className = "document-name";
+        name.textContent = doc.filename;
+
+        const meta = document.createElement("div");
+        meta.className = "document-meta";
+        meta.textContent = doc.created_at || "";
+
+        info.appendChild(name);
+        info.appendChild(meta);
+
+        const delBtn = document.createElement("button");
+        delBtn.className = "delete-document";
+        delBtn.textContent = "×";
+        delBtn.title = "删除文档";
+
+        delBtn.onclick = () => {
+            deleteDocument(doc.id);
+        };
+
+        item.appendChild(info);
+        item.appendChild(delBtn);
+        documentList.appendChild(item);
+    });
+}
+
+async function uploadDocument() {
+    const fileInput = document.getElementById("document-file");
+    const file = fileInput.files[0];
+
+    if (!file) {
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    updateStatus("正在上传文档...");
+
+    try {
+        const response = await fetch("/api/documents/upload", {
+            method: "POST",
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            alert(data.error || "上传失败");
+            updateStatus("文档上传失败");
+            return;
+        }
+
+        fileInput.value = "";
+
+        await loadDocuments();
+
+        updateStatus("文档上传成功");
+
+    } catch (error) {
+        alert("上传失败：" + error.message);
+        updateStatus("文档上传失败");
+    }
+}
+
+async function deleteDocument(documentId) {
+    const ok = confirm("确定要删除这个文档吗？");
+
+    if (!ok) {
+        return;
+    }
+
+    try {
+        await fetch(`/api/documents/${documentId}`, {
+            method: "DELETE"
+        });
+
+        await loadDocuments();
+
+        updateStatus("文档已删除");
+
+    } catch (error) {
+        alert("删除失败：" + error.message);
+    }
+}
     async function clearChat() {
         const ok = confirm("确定要清空当前会话的聊天记录吗？");
 
@@ -866,10 +1065,11 @@
     });
 
     async function initApp() {
-        initThemeButton();
-        await loadSessions();
-        await loadHistory(currentSessionId);
-    }
+    initThemeButton();
+    await loadSessions();
+    await loadHistory(currentSessionId);
+    await loadDocuments();
+}
 
     initApp();
 </script>

@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
 import os
 import httpx
 import sqlite3
@@ -18,6 +19,11 @@ MODEL_NAME = "deepseek-v4-flash"
 
 SYSTEM_PROMPT = "你是一个耐心、清晰、适合大学生学习使用的 AI 助手。回答要简洁、有条理。"
 
+UPLOAD_FOLDER = "uploads"
+ALLOWED_EXTENSIONS = {"txt", "md"}
+
+app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+
 
 def now_text():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -27,6 +33,10 @@ def get_conn():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def allowed_file(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
 def init_db():
@@ -47,6 +57,15 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER,
             role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS documents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            filename TEXT NOT NULL,
             content TEXT NOT NULL,
             created_at TEXT NOT NULL
         )
@@ -304,6 +323,76 @@ def delete_session(session_id):
     conn.close()
 
 
+def get_document_context(max_chars=6000):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT filename, content
+        FROM documents
+        ORDER BY id DESC
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        return ""
+
+    parts = []
+    used_chars = 0
+
+    for row in rows:
+        filename = row["filename"]
+        content = row["content"].strip()
+
+        if not content:
+            continue
+
+        remaining = max_chars - used_chars
+
+        if remaining <= 0:
+            break
+
+        if len(content) > remaining:
+            content = content[:remaining]
+
+        part = f"【文档：{filename}】\n{content}"
+        parts.append(part)
+
+        used_chars += len(content)
+
+    return "\n\n".join(parts)
+
+
+def build_system_message():
+    document_context = get_document_context()
+
+    if document_context:
+        system_content = f"""
+{SYSTEM_PROMPT}
+
+以下是用户上传的知识库文档内容。
+
+回答规则：
+1. 如果用户的问题与文档相关，请优先根据文档内容回答。
+2. 如果文档中没有相关信息，请明确说明“上传的文档中没有找到相关内容”。
+3. 不要编造文档中不存在的信息。
+4. 可以结合常识解释，但必须区分“文档内容”和“补充解释”。
+
+知识库文档内容如下：
+
+{document_context}
+"""
+    else:
+        system_content = SYSTEM_PROMPT
+
+    return {
+        "role": "system",
+        "content": system_content
+    }
+
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -386,6 +475,99 @@ def api_clear():
     })
 
 
+@app.route("/api/documents", methods=["GET"])
+def api_list_documents():
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT id, filename, created_at
+        FROM documents
+        ORDER BY id DESC
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    documents = [
+        {
+            "id": row["id"],
+            "filename": row["filename"],
+            "created_at": row["created_at"]
+        }
+        for row in rows
+    ]
+
+    return jsonify({
+        "documents": documents
+    })
+
+
+@app.route("/api/documents/upload", methods=["POST"])
+def api_upload_document():
+    if "file" not in request.files:
+        return jsonify({"error": "没有上传文件"}), 400
+
+    file = request.files["file"]
+
+    if file.filename == "":
+        return jsonify({"error": "文件名为空"}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({"error": "只支持 .txt 和 .md 文件"}), 400
+
+    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+    original_filename = file.filename
+    safe_filename = secure_filename(original_filename)
+
+    if not safe_filename:
+        ext = original_filename.rsplit(".", 1)[1].lower()
+        safe_filename = f"document_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
+
+    file_path = os.path.join(UPLOAD_FOLDER, safe_filename)
+    file.save(file_path)
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except UnicodeDecodeError:
+        with open(file_path, "r", encoding="gbk", errors="ignore") as f:
+            content = f.read()
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO documents (filename, content, created_at) VALUES (?, ?, ?)",
+        (original_filename, content, now_text())
+    )
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": "文件上传成功",
+        "filename": original_filename
+    })
+
+
+@app.route("/api/documents/<int:document_id>", methods=["DELETE"])
+def api_delete_document(document_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({
+        "message": "文档已删除",
+        "document_id": document_id
+    })
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     if not API_KEY:
@@ -407,10 +589,7 @@ def chat():
 
     history_messages = get_messages(session_id, limit=20)
 
-    system_message = {
-        "role": "system",
-        "content": SYSTEM_PROMPT
-    }
+    system_message = build_system_message()
 
     payload = {
         "model": MODEL_NAME,
@@ -471,10 +650,7 @@ def chat_stream():
 
     history_messages = get_messages(session_id, limit=20)
 
-    system_message = {
-        "role": "system",
-        "content": SYSTEM_PROMPT
-    }
+    system_message = build_system_message()
 
     payload = {
         "model": MODEL_NAME,
