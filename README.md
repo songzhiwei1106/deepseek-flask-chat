@@ -105,6 +105,9 @@ __pycache__/
 - DeepSeek API
 - httpx
 - python-dotenv
+## 项目预览
+
+![项目预览](assets/screenshot.png)
 
 ## 当前版本
 
@@ -134,6 +137,3 @@ __pycache__/
 
 ```bash
 python app.py
-## 项目预览
-
-![项目预览](assets/screenshot.png)
