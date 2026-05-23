@@ -134,3 +134,6 @@ __pycache__/
 
 ```bash
 python app.py
+## 项目预览
+
+![项目预览](assets/screenshot.png)
