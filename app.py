@@ -92,6 +92,7 @@ def create_session(title="新会话"):
     )
 
     session_id = cursor.lastrowid
+
     conn.commit()
     conn.close()
 
@@ -201,31 +202,20 @@ def update_session_title_if_needed(session_id, user_msg):
     conn.close()
 
 
-def update_session_time(session_id):
-    conn = get_conn()
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "UPDATE sessions SET updated_at = ? WHERE id = ?",
-        (now_text(), session_id)
-    )
-
-    conn.commit()
-    conn.close()
-
-
 def save_message(role, content, session_id):
     conn = get_conn()
     cursor = conn.cursor()
 
+    now = now_text()
+
     cursor.execute(
         "INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-        (session_id, role, content, now_text())
+        (session_id, role, content, now)
     )
 
     cursor.execute(
         "UPDATE sessions SET updated_at = ? WHERE id = ?",
-        (now_text(), session_id)
+        (now, session_id)
     )
 
     conn.commit()
@@ -319,6 +309,14 @@ def index():
     return render_template("index.html")
 
 
+@app.route("/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "message": "DeepSeek Flask Chat is running"
+    })
+
+
 @app.route("/api/sessions", methods=["GET"])
 def api_list_sessions():
     sessions = list_sessions()
@@ -391,9 +389,11 @@ def api_clear():
 @app.route("/api/chat", methods=["POST"])
 def chat():
     if not API_KEY:
-        return jsonify({"error": "没有读取到 DEEPSEEK_API_KEY，请检查 .env 文件"}), 500
+        return jsonify({
+            "error": "没有读取到 DEEPSEEK_API_KEY，请检查 .env 文件"
+        }), 500
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     user_msg = data.get("message", "").strip()
     session_id = data.get("session_id")
 
@@ -449,14 +449,20 @@ def chat():
 @app.route("/api/chat/stream", methods=["POST"])
 def chat_stream():
     if not API_KEY:
-        return Response("没有读取到 DEEPSEEK_API_KEY，请检查 .env 文件", mimetype="text/plain")
+        return Response(
+            "没有读取到 DEEPSEEK_API_KEY，请检查 .env 文件",
+            mimetype="text/plain; charset=utf-8"
+        )
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     user_msg = data.get("message", "").strip()
     session_id = data.get("session_id")
 
     if not user_msg:
-        return Response("消息不能为空", mimetype="text/plain")
+        return Response(
+            "消息不能为空",
+            mimetype="text/plain; charset=utf-8"
+        )
 
     session_id = get_or_create_session(session_id)
 
@@ -486,7 +492,13 @@ def chat_stream():
 
         try:
             with httpx.Client(timeout=60, trust_env=False) as client:
-                with client.stream("POST", DEEPSEEK_URL, headers=headers, json=payload) as response:
+                with client.stream(
+                    "POST",
+                    DEEPSEEK_URL,
+                    headers=headers,
+                    json=payload
+                ) as response:
+
                     if response.status_code != 200:
                         yield f"API 请求失败，状态码：{response.status_code}"
                         return
@@ -527,4 +539,11 @@ def chat_stream():
 
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True)
+
+    port = int(os.environ.get("PORT", 5000))
+
+    app.run(
+        host="0.0.0.0",
+        port=port,
+        debug=True
+    )
