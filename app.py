@@ -323,7 +323,94 @@ def delete_session(session_id):
     conn.close()
 
 
-def get_document_context(max_chars=6000):
+def has_documents():
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) AS count FROM documents")
+    row = cursor.fetchone()
+
+    conn.close()
+
+    return row["count"] > 0
+
+
+def tokenize_text(text):
+    import re
+
+    text = text.lower()
+
+    stop_words = {
+        "的", "了", "是", "在", "和", "与", "及", "或", "我", "你", "他", "她", "它",
+        "我们", "你们", "他们", "什么", "怎么", "如何", "根据", "上传", "文档",
+        "请问", "一下", "这个", "那个", "一个", "可以", "进行"
+    }
+
+    tokens = []
+
+    english_words = re.findall(r"[a-zA-Z0-9_]+", text)
+    tokens.extend([w for w in english_words if len(w) >= 2])
+
+    chinese_parts = re.findall(r"[\u4e00-\u9fff]+", text)
+
+    for part in chinese_parts:
+        chars = [ch for ch in part if ch not in stop_words]
+
+        for i in range(len(chars)):
+            if i + 2 <= len(chars):
+                tokens.append("".join(chars[i:i + 2]))
+
+            if i + 3 <= len(chars):
+                tokens.append("".join(chars[i:i + 3]))
+
+            if i + 4 <= len(chars):
+                tokens.append("".join(chars[i:i + 4]))
+
+    return tokens
+
+
+def split_text(text, chunk_size=800, overlap=100):
+    text = text.strip()
+
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+
+        if chunk.strip():
+            chunks.append(chunk.strip())
+
+        start = end - overlap
+
+        if start < 0:
+            start = 0
+
+        if start >= len(text):
+            break
+
+    return chunks
+
+
+def score_chunk(query_tokens, chunk):
+    if not query_tokens:
+        return 0
+
+    chunk_lower = chunk.lower()
+    score = 0
+
+    for token in query_tokens:
+        if token in chunk_lower:
+            score += len(token)
+
+    return score
+
+
+def get_relevant_document_context(query, max_chars=6000, top_k=5):
     conn = get_conn()
     cursor = conn.cursor()
 
@@ -339,53 +426,90 @@ def get_document_context(max_chars=6000):
     if not rows:
         return ""
 
-    parts = []
-    used_chars = 0
+    query_tokens = tokenize_text(query)
+
+    candidates = []
 
     for row in rows:
         filename = row["filename"]
-        content = row["content"].strip()
+        content = row["content"] or ""
 
-        if not content:
-            continue
+        chunks = split_text(content)
 
-        remaining = max_chars - used_chars
+        for chunk in chunks:
+            score = score_chunk(query_tokens, chunk)
 
-        if remaining <= 0:
+            if score > 0:
+                candidates.append({
+                    "filename": filename,
+                    "chunk": chunk,
+                    "score": score
+                })
+
+    if not candidates:
+        return ""
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    selected = []
+    used_chars = 0
+
+    for item in candidates[:top_k]:
+        filename = item["filename"]
+        chunk = item["chunk"]
+
+        part = f"【文档：{filename}】\n{chunk}"
+
+        if used_chars + len(part) > max_chars:
+            remaining = max_chars - used_chars
+
+            if remaining <= 0:
+                break
+
+            part = part[:remaining]
+
+        selected.append(part)
+        used_chars += len(part)
+
+        if used_chars >= max_chars:
             break
 
-        if len(content) > remaining:
-            content = content[:remaining]
-
-        part = f"【文档：{filename}】\n{content}"
-        parts.append(part)
-
-        used_chars += len(content)
-
-    return "\n\n".join(parts)
+    return "\n\n".join(selected)
 
 
-def build_system_message():
-    document_context = get_document_context()
+def build_system_message(user_msg):
+    document_context = get_relevant_document_context(user_msg)
 
     if document_context:
         system_content = f"""
 {SYSTEM_PROMPT}
 
-以下是用户上传的知识库文档内容。
+以下是根据用户问题从知识库中检索到的相关文档片段。
 
 回答规则：
-1. 如果用户的问题与文档相关，请优先根据文档内容回答。
-2. 如果文档中没有相关信息，请明确说明“上传的文档中没有找到相关内容”。
+1. 如果用户的问题与文档片段相关，请优先根据文档内容回答。
+2. 如果文档片段中没有相关信息，请明确说明“上传的文档中没有找到相关内容”。
 3. 不要编造文档中不存在的信息。
-4. 可以结合常识解释，但必须区分“文档内容”和“补充解释”。
+4. 可以适当补充解释，但必须区分“文档内容”和“补充说明”。
 
-知识库文档内容如下：
+相关文档片段如下：
 
 {document_context}
 """
     else:
-        system_content = SYSTEM_PROMPT
+        if has_documents():
+            system_content = f"""
+{SYSTEM_PROMPT}
+
+当前用户已经上传了知识库文档，但系统没有检索到与本次问题明显相关的文档片段。
+
+回答规则：
+1. 如果用户明确要求“根据上传文档”回答，请说明“上传的文档中没有找到相关内容”。
+2. 如果用户只是普通提问，可以正常回答。
+3. 不要假装看到了文档中不存在的内容。
+"""
+        else:
+            system_content = SYSTEM_PROMPT
 
     return {
         "role": "system",
@@ -589,7 +713,7 @@ def chat():
 
     history_messages = get_messages(session_id, limit=20)
 
-    system_message = build_system_message()
+    system_message = build_system_message(user_msg)
 
     payload = {
         "model": MODEL_NAME,
@@ -650,7 +774,7 @@ def chat_stream():
 
     history_messages = get_messages(session_id, limit=20)
 
-    system_message = build_system_message()
+    system_message = build_system_message(user_msg)
 
     payload = {
         "model": MODEL_NAME,
