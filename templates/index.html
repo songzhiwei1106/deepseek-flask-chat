@@ -10,13 +10,9 @@
         document.documentElement.setAttribute("data-theme", savedTheme);
     </script>
 
-    <!-- Markdown 渲染 -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-    <!-- HTML 安全过滤 -->
     <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
 
-    <!-- 代码高亮 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
@@ -36,6 +32,7 @@
             --button-bg: #1a73e8;
             --button-hover: #1558b0;
             --shadow: rgba(0, 0, 0, 0.08);
+            --active-bg: #eef4ff;
         }
 
         html[data-theme="dark"] {
@@ -53,6 +50,7 @@
             --button-bg: #2563eb;
             --button-hover: #1d4ed8;
             --shadow: rgba(0, 0, 0, 0.25);
+            --active-bg: #1e3a8a;
         }
 
         * {
@@ -73,13 +71,13 @@
         }
 
         .sidebar {
-            width: 260px;
+            width: 280px;
             background: var(--sidebar-bg);
             border-right: 1px solid var(--border);
-            padding: 20px;
+            padding: 18px;
             display: flex;
             flex-direction: column;
-            gap: 16px;
+            gap: 14px;
         }
 
         .logo {
@@ -90,30 +88,94 @@
         .version {
             color: var(--muted);
             font-size: 14px;
+            margin-top: 4px;
         }
 
-        .side-card {
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 14px;
-            background: var(--main-bg);
-            box-shadow: 0 4px 12px var(--shadow);
-        }
-
-        .side-card-title {
+        .new-chat-btn {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 12px;
+            border: none;
+            background: var(--button-bg);
+            color: white;
+            cursor: pointer;
+            font-size: 15px;
             font-weight: bold;
-            margin-bottom: 8px;
         }
 
-        .side-card p {
-            margin: 6px 0;
+        .new-chat-btn:hover {
+            background: var(--button-hover);
+        }
+
+        .session-title {
             font-size: 14px;
             color: var(--muted);
-            line-height: 1.6;
+            margin-top: 4px;
+        }
+
+        .session-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 4px;
+        }
+
+        .session-item {
+            border: 1px solid var(--border);
+            background: var(--main-bg);
+            border-radius: 12px;
+            padding: 10px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .session-item:hover {
+            background: var(--chat-bg);
+        }
+
+        .session-item.active {
+            background: var(--active-bg);
+            border-color: var(--button-bg);
+        }
+
+        .session-info {
+            overflow: hidden;
+            flex: 1;
+        }
+
+        .session-name {
+            font-size: 14px;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .session-meta {
+            font-size: 12px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .delete-session {
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 16px;
+            padding: 4px;
+        }
+
+        .delete-session:hover {
+            color: #ef4444;
         }
 
         .side-actions {
-            margin-top: auto;
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -214,6 +276,7 @@
             order: 1;
             background: var(--user-bg);
             color: var(--user-text);
+            border: none;
         }
 
         .avatar {
@@ -239,10 +302,6 @@
             box-shadow: 0 3px 10px var(--shadow);
             line-height: 1.75;
             word-break: break-word;
-        }
-
-        .message-row.user .bubble {
-            border: none;
         }
 
         .content p {
@@ -272,11 +331,6 @@
             padding: 2px 6px;
             border-radius: 5px;
             border: 1px solid var(--border);
-        }
-
-        .message-row.user .content code {
-            background: rgba(255, 255, 255, 0.18);
-            border: none;
         }
 
         .time {
@@ -383,35 +437,24 @@
     <aside class="sidebar">
         <div>
             <div class="logo">DeepSeek Chat</div>
-            <div class="version">v1.5 界面优化版</div>
+            <div class="version">v1.6 多会话版</div>
         </div>
 
-        <div class="side-card">
-            <div class="side-card-title">当前功能</div>
-            <p>多轮对话</p>
-            <p>SQLite 历史记录</p>
-            <p>Markdown 渲染</p>
-            <p>代码高亮</p>
-            <p>流式输出</p>
-        </div>
+        <button class="new-chat-btn" onclick="createNewSession()">+ 新建会话</button>
 
-        <div class="side-card">
-            <div class="side-card-title">使用提示</div>
-            <p>Enter 发送消息</p>
-            <p>Shift + Enter 换行</p>
-            <p>可切换浅色 / 深色模式</p>
-        </div>
+        <div class="session-title">会话列表</div>
+        <div class="session-list" id="session-list"></div>
 
         <div class="side-actions">
             <button class="side-btn" id="theme-btn" onclick="toggleTheme()">切换深色模式</button>
-            <button class="side-btn danger-btn" onclick="clearChat()">清空聊天记录</button>
+            <button class="side-btn danger-btn" onclick="clearChat()">清空当前会话</button>
         </div>
     </aside>
 
     <main class="chat-main">
         <header class="chat-header">
             <div>
-                <div class="chat-title">我的 AI 聊天助手</div>
+                <div class="chat-title" id="current-session-title">我的 AI 聊天助手</div>
                 <div class="chat-subtitle">基于 Flask + DeepSeek API</div>
             </div>
             <div class="status" id="status">就绪</div>
@@ -435,14 +478,18 @@
     const sendBtn = document.getElementById("send-btn");
     const statusText = document.getElementById("status");
     const themeBtn = document.getElementById("theme-btn");
+    const sessionList = document.getElementById("session-list");
+    const currentSessionTitle = document.getElementById("current-session-title");
+
+    let currentSessionId = null;
+    let sessions = [];
 
     function updateStatus(text) {
         statusText.textContent = text;
     }
 
     function currentTime() {
-        const now = new Date();
-        return now.toLocaleString();
+        return new Date().toLocaleString();
     }
 
     function renderMarkdown(content) {
@@ -465,8 +512,8 @@
     function showEmptyState() {
         chatBox.innerHTML = `
             <div class="empty-state" id="empty-state">
-                <h2>今天想聊点什么？</h2>
-                <p>可以问我 Python、考研、AI 项目、代码报错或学习规划。</p>
+                <h2>开启一个新会话</h2>
+                <p>可以问我 Python、AI 项目、代码报错、学习规划等问题。</p>
             </div>
         `;
     }
@@ -525,15 +572,89 @@
         };
     }
 
-    async function loadHistory() {
+    function renderSessions() {
+        sessionList.innerHTML = "";
+
+        sessions.forEach(session => {
+            const item = document.createElement("div");
+            item.className = "session-item";
+
+            if (session.id === currentSessionId) {
+                item.classList.add("active");
+            }
+
+            item.onclick = () => switchSession(session.id);
+
+            const info = document.createElement("div");
+            info.className = "session-info";
+
+            const name = document.createElement("div");
+            name.className = "session-name";
+            name.textContent = session.title || "新会话";
+
+            const meta = document.createElement("div");
+            meta.className = "session-meta";
+            meta.textContent = `${session.message_count || 0} 条消息`;
+
+            info.appendChild(name);
+            info.appendChild(meta);
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "delete-session";
+            delBtn.textContent = "×";
+            delBtn.title = "删除会话";
+            delBtn.onclick = (event) => {
+                event.stopPropagation();
+                deleteSession(session.id);
+            };
+
+            item.appendChild(info);
+            item.appendChild(delBtn);
+            sessionList.appendChild(item);
+        });
+
+        const current = sessions.find(s => s.id === currentSessionId);
+
+        if (current) {
+            currentSessionTitle.textContent = current.title || "新会话";
+        }
+    }
+
+    async function loadSessions() {
+        const response = await fetch("/api/sessions");
+        const data = await response.json();
+
+        sessions = data.sessions || [];
+
+        if (!currentSessionId) {
+            currentSessionId = data.current_session_id;
+        }
+
+        const exists = sessions.some(s => s.id === currentSessionId);
+
+        if (!exists && sessions.length > 0) {
+            currentSessionId = sessions[0].id;
+        }
+
+        renderSessions();
+    }
+
+    async function loadHistory(sessionId = currentSessionId) {
+        if (!sessionId) {
+            showEmptyState();
+            return;
+        }
+
         try {
-            const response = await fetch("/api/history");
+            const response = await fetch(`/api/history?session_id=${sessionId}`);
             const data = await response.json();
 
+            currentSessionId = data.session_id;
             chatBox.innerHTML = "";
 
             if (!data.messages || data.messages.length === 0) {
                 showEmptyState();
+                updateStatus("当前会话为空");
                 return;
             }
 
@@ -549,11 +670,79 @@
         }
     }
 
+    async function createNewSession() {
+        try {
+            const response = await fetch("/api/sessions", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    title: "新会话"
+                })
+            });
+
+            const data = await response.json();
+
+            currentSessionId = data.session.id;
+
+            await loadSessions();
+            await loadHistory(currentSessionId);
+
+            updateStatus("新会话已创建");
+
+        } catch (error) {
+            alert("新建会话失败：" + error.message);
+        }
+    }
+
+    async function switchSession(sessionId) {
+        if (sessionId === currentSessionId) {
+            return;
+        }
+
+        currentSessionId = sessionId;
+        renderSessions();
+        await loadHistory(currentSessionId);
+        updateStatus("已切换会话");
+    }
+
+    async function deleteSession(sessionId) {
+        const ok = confirm("确定要删除这个会话吗？");
+
+        if (!ok) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/sessions/${sessionId}`, {
+                method: "DELETE"
+            });
+
+            const data = await response.json();
+
+            sessions = data.sessions || [];
+            currentSessionId = data.current_session_id;
+
+            renderSessions();
+            await loadHistory(currentSessionId);
+
+            updateStatus("会话已删除");
+
+        } catch (error) {
+            alert("删除失败：" + error.message);
+        }
+    }
+
     async function sendMessage() {
         const message = input.value.trim();
 
         if (!message) {
             return;
+        }
+
+        if (!currentSessionId) {
+            await loadSessions();
         }
 
         addMessage("user", message, currentTime());
@@ -576,7 +765,8 @@
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    message: message
+                    message: message,
+                    session_id: currentSessionId
                 })
             });
 
@@ -608,6 +798,7 @@
                 aiMessage.contentDiv.textContent = "没有收到 AI 回复。";
             }
 
+            await loadSessions();
             updateStatus("回复完成");
 
         } catch (error) {
@@ -620,7 +811,7 @@
     }
 
     async function clearChat() {
-        const ok = confirm("确定要清空全部聊天记录吗？");
+        const ok = confirm("确定要清空当前会话的聊天记录吗？");
 
         if (!ok) {
             return;
@@ -628,11 +819,19 @@
 
         try {
             await fetch("/api/clear", {
-                method: "POST"
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    session_id: currentSessionId
+                })
             });
 
             showEmptyState();
-            updateStatus("聊天记录已清空");
+            await loadSessions();
+
+            updateStatus("当前会话已清空");
 
         } catch (error) {
             alert("清空失败：" + error.message);
@@ -666,8 +865,13 @@
         input.style.height = input.scrollHeight + "px";
     });
 
-    initThemeButton();
-    loadHistory();
+    async function initApp() {
+        initThemeButton();
+        await loadSessions();
+        await loadHistory(currentSessionId);
+    }
+
+    initApp();
 </script>
 
 </body>
