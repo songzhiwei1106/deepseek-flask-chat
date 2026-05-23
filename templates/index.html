@@ -517,13 +517,13 @@
     <input
         type="file"
         id="document-file"
-        accept=".txt,.md"
+        accept=".txt,.md,.pdf"
         style="display: none;"
         onchange="uploadDocument()"
     >
 
     <button class="side-btn" onclick="document.getElementById('document-file').click()">
-        上传 txt / md
+        上传 txt / md / pdf
     </button>
 
     <div class="document-list" id="document-list"></div>

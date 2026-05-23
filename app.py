@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context
 from dotenv import load_dotenv
 from werkzeug.utils import secure_filename
+from PyPDF2 import PdfReader
 import os
 import httpx
 import sqlite3
@@ -20,9 +21,9 @@ MODEL_NAME = "deepseek-v4-flash"
 SYSTEM_PROMPT = "你是一个耐心、清晰、适合大学生学习使用的 AI 助手。回答要简洁、有条理。"
 
 UPLOAD_FOLDER = "uploads"
-ALLOWED_EXTENSIONS = {"txt", "md"}
+ALLOWED_EXTENSIONS = {"txt", "md", "pdf"}
 
-app.config["MAX_CONTENT_LENGTH"] = 5 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 
 
 def now_text():
@@ -37,6 +38,37 @@ def get_conn():
 
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def read_uploaded_file(file_path, ext):
+    if ext == "pdf":
+        try:
+            reader = PdfReader(file_path)
+
+            texts = []
+
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text() or ""
+
+                if page_text.strip():
+                    texts.append(f"第 {i + 1} 页：\n{page_text.strip()}")
+
+            content = "\n\n".join(texts)
+
+            if not content.strip():
+                return "该 PDF 未能提取到有效文本，可能是扫描版 PDF 或图片型 PDF。"
+
+            return content
+
+        except Exception as e:
+            return f"PDF 解析失败：{str(e)}"
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+    except UnicodeDecodeError:
+        with open(file_path, "r", encoding="gbk", errors="ignore") as f:
+            return f.read()
 
 
 def init_db():
@@ -343,13 +375,13 @@ def tokenize_text(text):
     stop_words = {
         "的", "了", "是", "在", "和", "与", "及", "或", "我", "你", "他", "她", "它",
         "我们", "你们", "他们", "什么", "怎么", "如何", "根据", "上传", "文档",
-        "请问", "一下", "这个", "那个", "一个", "可以", "进行"
+        "请问", "一下", "这个", "那个", "一个", "可以", "进行", "pdf", "txt", "md"
     }
 
     tokens = []
 
     english_words = re.findall(r"[a-zA-Z0-9_]+", text)
-    tokens.extend([w for w in english_words if len(w) >= 2])
+    tokens.extend([w for w in english_words if len(w) >= 2 and w not in stop_words])
 
     chinese_parts = re.findall(r"[\u4e00-\u9fff]+", text)
 
@@ -411,6 +443,18 @@ def score_chunk(query_tokens, chunk):
 
 
 def get_relevant_document_context(query, max_chars=6000, top_k=5):
+    query_lower = query.lower()
+
+    want_pdf = "pdf" in query_lower
+    want_txt = "txt" in query_lower or "md" in query_lower or "markdown" in query_lower
+
+    summary_keywords = [
+        "总结", "概括", "主要内容", "主要讲", "讲了什么", "内容是什么",
+        "summarize", "summary"
+    ]
+
+    is_summary_request = any(keyword in query_lower for keyword in summary_keywords)
+
     conn = get_conn()
     cursor = conn.cursor()
 
@@ -425,6 +469,59 @@ def get_relevant_document_context(query, max_chars=6000, top_k=5):
 
     if not rows:
         return ""
+
+    if want_pdf:
+        rows = [
+            row for row in rows
+            if row["filename"].lower().endswith(".pdf")
+        ]
+    elif want_txt:
+        rows = [
+            row for row in rows
+            if row["filename"].lower().endswith(".txt")
+            or row["filename"].lower().endswith(".md")
+        ]
+
+    if not rows:
+        return ""
+
+    def build_context_from_rows(selected_rows):
+        parts = []
+        used_chars = 0
+
+        for row in selected_rows:
+            filename = row["filename"]
+            content = (row["content"] or "").strip()
+
+            if not content:
+                continue
+
+            chunks = split_text(content, chunk_size=1200, overlap=100)
+
+            for chunk in chunks:
+                part = f"【文档：{filename}】\n{chunk}"
+
+                if used_chars + len(part) > max_chars:
+                    remaining = max_chars - used_chars
+
+                    if remaining <= 0:
+                        break
+
+                    part = part[:remaining]
+
+                parts.append(part)
+                used_chars += len(part)
+
+                if used_chars >= max_chars:
+                    break
+
+            if used_chars >= max_chars:
+                break
+
+        return "\n\n".join(parts)
+
+    if want_pdf and is_summary_request:
+        return build_context_from_rows(rows)
 
     query_tokens = tokenize_text(query)
 
@@ -445,6 +542,9 @@ def get_relevant_document_context(query, max_chars=6000, top_k=5):
                     "chunk": chunk,
                     "score": score
                 })
+
+    if not candidates and want_pdf:
+        return build_context_from_rows(rows)
 
     if not candidates:
         return ""
@@ -490,7 +590,9 @@ def build_system_message(user_msg):
 1. 如果用户的问题与文档片段相关，请优先根据文档内容回答。
 2. 如果文档片段中没有相关信息，请明确说明“上传的文档中没有找到相关内容”。
 3. 不要编造文档中不存在的信息。
-4. 可以适当补充解释，但必须区分“文档内容”和“补充说明”。
+4. 如果用户明确要求根据 PDF 回答，只能依据 PDF 文档片段，不要参考 txt 或 md 文档。
+5. 如果用户明确要求根据 txt 或 md 回答，只能依据 txt 或 md 文档片段，不要参考 PDF。
+6. 可以适当补充解释，但必须区分“文档内容”和“补充说明”。
 
 相关文档片段如下：
 
@@ -505,8 +607,9 @@ def build_system_message(user_msg):
 
 回答规则：
 1. 如果用户明确要求“根据上传文档”回答，请说明“上传的文档中没有找到相关内容”。
-2. 如果用户只是普通提问，可以正常回答。
-3. 不要假装看到了文档中不存在的内容。
+2. 如果用户明确要求根据 PDF 回答，但没有检索到 PDF 内容，请说明“上传的 PDF 中没有找到相关内容”。
+3. 如果用户只是普通提问，可以正常回答。
+4. 不要假装看到了文档中不存在的内容。
 """
         else:
             system_content = SYSTEM_PROMPT
@@ -638,26 +741,22 @@ def api_upload_document():
         return jsonify({"error": "文件名为空"}), 400
 
     if not allowed_file(file.filename):
-        return jsonify({"error": "只支持 .txt 和 .md 文件"}), 400
+        return jsonify({"error": "只支持 .txt、.md 和 .pdf 文件"}), 400
 
     os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
     original_filename = file.filename
     safe_filename = secure_filename(original_filename)
 
+    ext = original_filename.rsplit(".", 1)[1].lower()
+
     if not safe_filename:
-        ext = original_filename.rsplit(".", 1)[1].lower()
         safe_filename = f"document_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
 
     file_path = os.path.join(UPLOAD_FOLDER, safe_filename)
     file.save(file_path)
 
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except UnicodeDecodeError:
-        with open(file_path, "r", encoding="gbk", errors="ignore") as f:
-            content = f.read()
+    content = read_uploaded_file(file_path, ext)
 
     conn = get_conn()
     cursor = conn.cursor()
