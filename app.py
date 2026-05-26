@@ -111,7 +111,7 @@ def tokenize_text(text):
         "的", "了", "是", "在", "和", "与", "及", "或", "我", "你", "他", "她", "它",
         "我们", "你们", "他们", "什么", "怎么", "如何", "根据", "上传", "文档",
         "请问", "一下", "这个", "那个", "一个", "可以", "进行", "pdf", "txt", "md",
-        "总结", "概括", "主要", "内容", "讲了", "什么"
+        "总结", "概括", "主要", "内容", "讲了", "什么", "参考", "来源", "引用"
     }
 
     tokens = []
@@ -508,7 +508,7 @@ def has_documents():
     return row["count"] > 0
 
 
-def get_relevant_document_context(query, max_chars=6000, top_k=6):
+def retrieve_relevant_document_context(query, max_chars=6000, top_k=6):
     query_lower = (query or "").lower()
 
     want_pdf = "pdf" in query_lower
@@ -539,17 +539,17 @@ def get_relevant_document_context(query, max_chars=6000, top_k=6):
     conn.close()
 
     if not rows:
-        return ""
+        return "", []
 
     filtered_rows = []
 
     for row in rows:
-        filename = row["filename"].lower()
+        filename_lower = row["filename"].lower()
 
-        if want_pdf and not filename.endswith(".pdf"):
+        if want_pdf and not filename_lower.endswith(".pdf"):
             continue
 
-        if want_txt and not (filename.endswith(".txt") or filename.endswith(".md")):
+        if want_txt and not (filename_lower.endswith(".txt") or filename_lower.endswith(".md")):
             continue
 
         filtered_rows.append(row)
@@ -557,10 +557,11 @@ def get_relevant_document_context(query, max_chars=6000, top_k=6):
     rows = filtered_rows
 
     if not rows:
-        return ""
+        return "", []
 
     def build_context_from_rows(selected_rows):
         parts = []
+        sources = []
         used_chars = 0
 
         for row in selected_rows:
@@ -579,12 +580,17 @@ def get_relevant_document_context(query, max_chars=6000, top_k=6):
                 part = part[:remaining]
 
             parts.append(part)
+            sources.append({
+                "filename": filename,
+                "chunk_index": chunk_index + 1
+            })
+
             used_chars += len(part)
 
             if used_chars >= max_chars:
                 break
 
-        return "\n\n".join(parts)
+        return "\n\n".join(parts), sources
 
     if is_summary_request and want_pdf:
         return build_context_from_rows(rows)
@@ -611,19 +617,28 @@ def get_relevant_document_context(query, max_chars=6000, top_k=6):
         return build_context_from_rows(rows)
 
     if not candidates:
-        return ""
+        return "", []
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
 
     selected = []
+    sources = []
     used_chars = 0
+    seen = set()
 
     for item in candidates[:top_k]:
         filename = item["filename"]
-        chunk_index = item["chunk_index"]
+        chunk_index = item["chunk_index"] + 1
         chunk = item["chunk"]
 
-        part = f"【文档：{filename}｜片段：{chunk_index + 1}】\n{chunk}"
+        key = (filename, chunk_index)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        part = f"【文档：{filename}｜片段：{chunk_index}】\n{chunk}"
 
         if used_chars + len(part) > max_chars:
             remaining = max_chars - used_chars
@@ -634,16 +649,45 @@ def get_relevant_document_context(query, max_chars=6000, top_k=6):
             part = part[:remaining]
 
         selected.append(part)
+        sources.append({
+            "filename": filename,
+            "chunk_index": chunk_index
+        })
+
         used_chars += len(part)
 
         if used_chars >= max_chars:
             break
 
-    return "\n\n".join(selected)
+    return "\n\n".join(selected), sources
+
+
+def format_source_references(sources):
+    if not sources:
+        return ""
+
+    unique_sources = []
+    seen = set()
+
+    for source in sources:
+        filename = source["filename"]
+        chunk_index = source["chunk_index"]
+        key = (filename, chunk_index)
+
+        if key not in seen:
+            unique_sources.append(source)
+            seen.add(key)
+
+    lines = ["\n\n---\n\n**参考来源：**"]
+
+    for source in unique_sources[:8]:
+        lines.append(f"- {source['filename']}｜片段 {source['chunk_index']}")
+
+    return "\n".join(lines)
 
 
 def build_system_message(user_msg):
-    document_context = get_relevant_document_context(user_msg)
+    document_context, sources = retrieve_relevant_document_context(user_msg)
 
     if document_context:
         system_content = f"""
@@ -658,6 +702,7 @@ def build_system_message(user_msg):
 4. 如果用户明确要求根据 PDF 回答，只能依据 PDF 文档片段，不要参考 txt 或 md 文档。
 5. 如果用户明确要求根据 txt 或 md 回答，只能依据 txt 或 md 文档片段，不要参考 PDF。
 6. 可以适当补充解释，但必须区分“文档内容”和“补充说明”。
+7. 系统会在回答末尾自动追加参考来源，你不要自己编造引用来源。
 
 相关文档片段如下：
 
@@ -682,7 +727,7 @@ def build_system_message(user_msg):
     return {
         "role": "system",
         "content": system_content
-    }
+    }, sources
 
 
 @app.route("/")
@@ -935,7 +980,7 @@ def chat():
 
     history_messages = get_messages(session_id, limit=20)
 
-    system_message = build_system_message(user_msg)
+    system_message, sources = build_system_message(user_msg)
 
     payload = {
         "model": MODEL_NAME,
@@ -958,6 +1003,11 @@ def chat():
             return jsonify(result), response.status_code
 
         ai_reply = result["choices"][0]["message"]["content"]
+
+        source_text = format_source_references(sources)
+
+        if source_text:
+            ai_reply += source_text
 
         save_message("assistant", ai_reply, session_id)
 
@@ -996,7 +1046,7 @@ def chat_stream():
 
     history_messages = get_messages(session_id, limit=20)
 
-    system_message = build_system_message(user_msg)
+    system_message, sources = build_system_message(user_msg)
 
     payload = {
         "model": MODEL_NAME,
@@ -1046,6 +1096,12 @@ def chat_stream():
 
                         except Exception:
                             continue
+
+            source_text = format_source_references(sources)
+
+            if source_text:
+                full_reply += source_text
+                yield source_text
 
             if full_reply:
                 save_message("assistant", full_reply, session_id)
