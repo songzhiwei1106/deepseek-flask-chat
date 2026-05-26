@@ -2,55 +2,49 @@
 <html lang="zh-CN" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <title>DeepSeek Chat</title>
+    <title>DeepSeek Flask Chat</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <script>
-        const savedTheme = localStorage.getItem("theme") || "light";
-        document.documentElement.setAttribute("data-theme", savedTheme);
-    </script>
-
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
-
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
 
     <style>
         :root {
-            --bg: #f5f6fa;
+            --bg: #f3f4f6;
             --sidebar-bg: #ffffff;
             --main-bg: #ffffff;
-            --chat-bg: #f7f7f8;
-            --text: #202124;
+            --text: #111827;
             --muted: #6b7280;
             --border: #e5e7eb;
-            --user-bg: #1a73e8;
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --user-bubble: #2563eb;
             --user-text: #ffffff;
-            --ai-bg: #ffffff;
-            --code-bg: #f6f8fa;
-            --button-bg: #1a73e8;
-            --button-hover: #1558b0;
-            --shadow: rgba(0, 0, 0, 0.08);
-            --active-bg: #eef4ff;
+            --ai-bubble: #f3f4f6;
+            --ai-text: #111827;
+            --danger: #ef4444;
+            --input-bg: #ffffff;
+            --shadow: rgba(15, 23, 42, 0.08);
         }
 
         html[data-theme="dark"] {
-            --bg: #111827;
+            --bg: #0f172a;
             --sidebar-bg: #111827;
-            --main-bg: #0f172a;
-            --chat-bg: #0f172a;
-            --text: #f9fafb;
+            --main-bg: #020617;
+            --text: #e5e7eb;
             --muted: #9ca3af;
-            --border: #374151;
-            --user-bg: #2563eb;
+            --border: #1f2937;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --user-bubble: #2563eb;
             --user-text: #ffffff;
-            --ai-bg: #1f2937;
-            --code-bg: #111827;
-            --button-bg: #2563eb;
-            --button-hover: #1d4ed8;
-            --shadow: rgba(0, 0, 0, 0.25);
-            --active-bg: #1e3a8a;
+            --ai-bubble: #111827;
+            --ai-text: #e5e7eb;
+            --danger: #f87171;
+            --input-bg: #111827;
+            --shadow: rgba(0, 0, 0, 0.35);
         }
 
         * {
@@ -59,178 +53,187 @@
 
         body {
             margin: 0;
-            font-family: Arial, "Microsoft YaHei", sans-serif;
+            height: 100vh;
             background: var(--bg);
             color: var(--text);
+            font-family: Arial, "Microsoft YaHei", sans-serif;
         }
 
         .app {
-            display: flex;
             height: 100vh;
+            display: flex;
             overflow: hidden;
         }
 
         .sidebar {
-            width: 280px;
+            width: 300px;
             background: var(--sidebar-bg);
             border-right: 1px solid var(--border);
-            padding: 18px;
+            padding: 16px;
             display: flex;
             flex-direction: column;
             gap: 14px;
+            overflow-y: auto;
         }
 
-        .logo {
-            font-size: 22px;
-            font-weight: bold;
+        .brand {
+            font-size: 20px;
+            font-weight: 800;
         }
 
         .version {
+            font-size: 12px;
             color: var(--muted);
-            font-size: 14px;
             margin-top: 4px;
         }
 
-        .new-chat-btn {
+        .side-btn {
             width: 100%;
-            padding: 12px 14px;
+            border: 1px solid var(--border);
+            background: var(--main-bg);
+            color: var(--text);
             border-radius: 12px;
-            border: none;
-            background: var(--button-bg);
-            color: white;
+            padding: 10px 12px;
             cursor: pointer;
-            font-size: 15px;
-            font-weight: bold;
+            text-align: left;
+            font-size: 14px;
         }
 
-        .new-chat-btn:hover {
-            background: var(--button-hover);
+        .side-btn:hover {
+            border-color: var(--primary);
         }
 
-        .session-title {
+        .side-btn.primary {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary);
+            text-align: center;
+        }
+
+        .side-btn.primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .session-title,
+        .knowledge-title {
             font-size: 14px;
             color: var(--muted);
             margin-top: 4px;
         }
 
-        .session-list {
-            flex: 1;
-            overflow-y: auto;
+        .session-list,
+        .document-list {
             display: flex;
             flex-direction: column;
             gap: 8px;
-            padding-right: 4px;
         }
 
-        .session-item {
+        .session-item,
+        .document-item {
             border: 1px solid var(--border);
             background: var(--main-bg);
             border-radius: 12px;
             padding: 10px;
             cursor: pointer;
             display: flex;
-            justify-content: space-between;
-            gap: 8px;
             align-items: center;
+            gap: 8px;
         }
 
-        .session-item:hover {
-            background: var(--chat-bg);
+        .session-item:hover,
+        .document-item:hover {
+            border-color: var(--primary);
         }
 
         .session-item.active {
-            background: var(--active-bg);
-            border-color: var(--button-bg);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 1px var(--primary);
         }
 
-        .session-info {
-            overflow: hidden;
+        .session-info,
+        .document-info {
             flex: 1;
+            overflow: hidden;
         }
 
-        .session-name {
-            font-size: 14px;
-            font-weight: bold;
+        .session-name,
+        .document-name {
+            font-size: 13px;
+            font-weight: 700;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
-        .session-meta {
-            font-size: 12px;
+        .session-meta,
+        .document-meta {
+            font-size: 11px;
             color: var(--muted);
             margin-top: 4px;
         }
 
-        .delete-session {
+        .delete-session,
+        .delete-document {
             border: none;
             background: transparent;
             color: var(--muted);
             cursor: pointer;
-            font-size: 16px;
-            padding: 4px;
+            font-size: 18px;
+            line-height: 1;
         }
 
-        .delete-session:hover {
-            color: #ef4444;
+        .delete-session:hover,
+        .delete-document:hover {
+            color: var(--danger);
         }
 
-        .side-actions {
+        .knowledge-panel {
+            border-top: 1px solid var(--border);
+            padding-top: 12px;
             display: flex;
             flex-direction: column;
             gap: 10px;
         }
 
-        .side-btn {
-            width: 100%;
-            padding: 11px 14px;
-            border-radius: 10px;
-            border: 1px solid var(--border);
-            background: var(--main-bg);
-            color: var(--text);
-            cursor: pointer;
-            font-size: 15px;
+        .empty-document,
+        .empty-session {
+            font-size: 12px;
+            color: var(--muted);
         }
 
-        .side-btn:hover {
-            background: var(--chat-bg);
-        }
-
-        .danger-btn {
-            color: #ef4444;
+        .side-actions {
+            margin-top: auto;
+            border-top: 1px solid var(--border);
+            padding-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
         }
 
         .chat-main {
             flex: 1;
-            height: 100vh;
             display: flex;
             flex-direction: column;
-            background: var(--chat-bg);
+            min-width: 0;
         }
 
         .chat-header {
             height: 64px;
-            padding: 0 24px;
             border-bottom: 1px solid var(--border);
+            background: var(--main-bg);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background: var(--main-bg);
+            padding: 0 22px;
         }
 
         .chat-title {
-            font-size: 18px;
-            font-weight: bold;
-        }
-
-        .chat-subtitle {
-            font-size: 13px;
-            color: var(--muted);
-            margin-top: 4px;
+            font-size: 16px;
+            font-weight: 700;
         }
 
         .status {
-            font-size: 13px;
+            font-size: 12px;
             color: var(--muted);
         }
 
@@ -238,162 +241,136 @@
             flex: 1;
             overflow-y: auto;
             padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
         }
 
         .empty-state {
-            height: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-direction: column;
-            color: var(--muted);
+            margin: auto;
             text-align: center;
-        }
-
-        .empty-state h2 {
-            margin-bottom: 8px;
-            color: var(--text);
+            color: var(--muted);
+            line-height: 1.8;
         }
 
         .message-row {
             display: flex;
-            gap: 12px;
-            margin-bottom: 20px;
+            gap: 10px;
             align-items: flex-start;
         }
 
         .message-row.user {
-            justify-content: flex-end;
-        }
-
-        .message-row.user .avatar {
-            order: 2;
-            background: var(--user-bg);
-            color: white;
-        }
-
-        .message-row.user .bubble {
-            order: 1;
-            background: var(--user-bg);
-            color: var(--user-text);
-            border: none;
+            flex-direction: row-reverse;
         }
 
         .avatar {
-            width: 38px;
-            height: 38px;
+            width: 34px;
+            height: 34px;
             border-radius: 50%;
-            background: var(--ai-bg);
-            border: 1px solid var(--border);
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 13px;
-            font-weight: bold;
+            font-weight: 700;
             flex-shrink: 0;
         }
 
+        .message-row.user .avatar {
+            background: var(--primary);
+            color: #ffffff;
+        }
+
+        .message-row.assistant .avatar {
+            background: var(--ai-bubble);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+
         .bubble {
-            max-width: 74%;
-            padding: 13px 16px;
+            max-width: min(760px, 78%);
             border-radius: 16px;
-            background: var(--ai-bg);
-            border: 1px solid var(--border);
-            box-shadow: 0 3px 10px var(--shadow);
-            line-height: 1.75;
+            padding: 12px 14px;
+            line-height: 1.7;
+            font-size: 15px;
             word-break: break-word;
+            box-shadow: 0 4px 12px var(--shadow);
         }
 
-        .content p {
-            margin: 8px 0;
+        .message-row.user .bubble {
+            background: var(--user-bubble);
+            color: var(--user-text);
+            border-top-right-radius: 4px;
         }
 
-        .content ul,
-        .content ol {
-            padding-left: 24px;
+        .message-row.assistant .bubble {
+            background: var(--ai-bubble);
+            color: var(--ai-text);
+            border-top-left-radius: 4px;
         }
 
-        .content pre {
-            background: var(--code-bg);
-            padding: 14px;
-            border-radius: 10px;
+        .bubble pre {
             overflow-x: auto;
-            border: 1px solid var(--border);
+            padding: 12px;
+            border-radius: 10px;
+            background: #0f172a;
+            color: #e5e7eb;
         }
 
-        .content code {
+        .bubble code {
             font-family: Consolas, Monaco, monospace;
-            font-size: 14px;
-        }
-
-        .content :not(pre) > code {
-            background: var(--code-bg);
-            padding: 2px 6px;
-            border-radius: 5px;
-            border: 1px solid var(--border);
         }
 
         .time {
-            margin-top: 8px;
-            font-size: 12px;
+            font-size: 11px;
             color: var(--muted);
-        }
-
-        .message-row.user .time {
-            color: rgba(255, 255, 255, 0.75);
+            margin-top: 6px;
         }
 
         .composer {
-            padding: 18px 24px 24px;
-            background: var(--main-bg);
             border-top: 1px solid var(--border);
+            background: var(--main-bg);
+            padding: 14px 22px;
         }
 
         .input-wrapper {
-            max-width: 900px;
-            margin: 0 auto;
             display: flex;
-            gap: 12px;
             align-items: flex-end;
-            background: var(--main-bg);
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            padding: 10px;
-            box-shadow: 0 4px 16px var(--shadow);
+            gap: 10px;
+            max-width: 980px;
+            margin: 0 auto;
         }
 
         textarea {
             flex: 1;
             resize: none;
-            border: none;
-            outline: none;
-            background: transparent;
+            min-height: 46px;
+            max-height: 150px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 12px 14px;
+            background: var(--input-bg);
             color: var(--text);
-            font-size: 16px;
-            line-height: 1.6;
-            max-height: 160px;
-            padding: 8px;
-            font-family: inherit;
+            outline: none;
+            font-size: 15px;
+            line-height: 1.5;
         }
 
-        textarea::placeholder {
-            color: var(--muted);
+        textarea:focus {
+            border-color: var(--primary);
         }
 
         .send-btn {
-            width: 46px;
-            height: 46px;
             border: none;
-            border-radius: 12px;
-            background: var(--button-bg);
-            color: white;
-            font-size: 18px;
+            background: var(--primary);
+            color: #ffffff;
+            border-radius: 14px;
+            padding: 12px 18px;
             cursor: pointer;
-            flex-shrink: 0;
+            font-size: 15px;
         }
 
         .send-btn:hover {
-            background: var(--button-hover);
+            background: var(--primary-hover);
         }
 
         .send-btn:disabled {
@@ -401,184 +378,185 @@
             cursor: not-allowed;
         }
 
-        .tips {
-            text-align: center;
-            margin-top: 10px;
+        .document-modal-mask {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.45);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            padding: 20px;
+        }
+
+        .document-modal-mask.show {
+            display: flex;
+        }
+
+        .document-modal {
+            width: min(900px, 95vw);
+            height: min(700px, 85vh);
+            background: var(--main-bg);
+            color: var(--text);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .document-modal-header {
+            padding: 16px 18px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .document-modal-title {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .document-modal-meta {
+            margin-top: 4px;
             font-size: 12px;
             color: var(--muted);
         }
 
+        .document-modal-close {
+            border: none;
+            background: transparent;
+            color: var(--muted);
+            font-size: 26px;
+            cursor: pointer;
+        }
+
+        .document-modal-close:hover {
+            color: var(--danger);
+        }
+
+        .document-preview-content {
+            flex: 1;
+            overflow: auto;
+            padding: 18px;
+            margin: 0;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: 14px;
+            line-height: 1.7;
+            background: var(--main-bg);
+            color: var(--text);
+        }
+
         @media (max-width: 800px) {
             .sidebar {
-                display: none;
-            }
-
-            .chat-header {
-                padding: 0 16px;
-            }
-
-            #chat-box {
-                padding: 16px;
+                width: 240px;
             }
 
             .bubble {
                 max-width: 86%;
             }
-
-            .composer {
-                padding: 14px;
-            }
         }
-    .knowledge-panel {
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.knowledge-title {
-    font-size: 14px;
-    color: var(--muted);
-}
-
-.document-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 160px;
-    overflow-y: auto;
-}
-
-.document-item {
-    border: 1px solid var(--border);
-    background: var(--main-bg);
-    border-radius: 10px;
-    padding: 8px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-}
-
-.document-info {
-    overflow: hidden;
-    flex: 1;
-}
-
-.document-name {
-    font-size: 13px;
-    font-weight: bold;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.document-meta {
-    font-size: 11px;
-    color: var(--muted);
-    margin-top: 3px;
-}
-
-.delete-document {
-    border: none;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 16px;
-}
-
-.delete-document:hover {
-    color: #ef4444;
-}
-
-.empty-document {
-    font-size: 12px;
-    color: var(--muted);
-}
     </style>
 </head>
-<body>
 
+<body>
 <div class="app">
     <aside class="sidebar">
         <div>
-            <div class="logo">DeepSeek Chat</div>
-            <div class="version">v1.6 多会话版</div>
+            <div class="brand">DeepSeek Chat</div>
+            <div class="version">v2.2 文档预览调试版</div>
         </div>
 
-        <button class="new-chat-btn" onclick="createNewSession()">+ 新建会话</button>
+        <button class="side-btn primary" onclick="createNewSession()">+ 新建会话</button>
 
         <div class="session-title">会话列表</div>
         <div class="session-list" id="session-list"></div>
+
         <div class="knowledge-panel">
-    <div class="knowledge-title">知识库文档</div>
+            <div class="knowledge-title">知识库文档</div>
 
-    <input
-        type="file"
-        id="document-file"
-        accept=".txt,.md,.pdf"
-        style="display: none;"
-        onchange="uploadDocument()"
-    >
+            <input
+                type="file"
+                id="document-file"
+                accept=".txt,.md,.pdf"
+                style="display: none;"
+                onchange="uploadDocument()"
+            >
 
-    <button class="side-btn" onclick="document.getElementById('document-file').click()">
-        上传 txt / md / pdf
-    </button>
+            <button class="side-btn" onclick="document.getElementById('document-file').click()">
+                上传 txt / md / pdf
+            </button>
 
-    <div class="document-list" id="document-list"></div>
-</div>
+            <div class="document-list" id="document-list"></div>
+        </div>
 
         <div class="side-actions">
             <button class="side-btn" id="theme-btn" onclick="toggleTheme()">切换深色模式</button>
-            <button class="side-btn danger-btn" onclick="clearChat()">清空当前会话</button>
+            <button class="side-btn" onclick="clearChat()">清空当前会话</button>
         </div>
     </aside>
 
     <main class="chat-main">
         <header class="chat-header">
             <div>
-                <div class="chat-title" id="current-session-title">我的 AI 聊天助手</div>
-                <div class="chat-subtitle">基于 Flask + DeepSeek API</div>
+                <div class="chat-title" id="current-session-title">当前会话</div>
+                <div class="status" id="status">就绪</div>
             </div>
-            <div class="status" id="status">就绪</div>
         </header>
 
         <div id="chat-box"></div>
 
         <div class="composer">
             <div class="input-wrapper">
-                <textarea id="user-input" rows="1" placeholder="请输入你的问题..."></textarea>
-                <button class="send-btn" id="send-btn" onclick="sendMessage()">↑</button>
+                <textarea id="user-input" placeholder="输入你的问题，Enter 发送，Shift + Enter 换行"></textarea>
+                <button class="send-btn" id="send-btn" onclick="sendMessage()">发送</button>
             </div>
-            <div class="tips">Enter 发送，Shift + Enter 换行</div>
         </div>
     </main>
 </div>
 
-<script>
-const chatBox = document.getElementById("chat-box");
-const input = document.getElementById("user-input");
-const sendBtn = document.getElementById("send-btn");
-const statusText = document.getElementById("status");
-const themeBtn = document.getElementById("theme-btn");
-const sessionList = document.getElementById("session-list");
-const currentSessionTitle = document.getElementById("current-session-title");
-const documentList = document.getElementById("document-list");
+<div class="document-modal-mask" id="document-modal-mask" onclick="closeDocumentPreview()">
+    <div class="document-modal" onclick="event.stopPropagation()">
+        <div class="document-modal-header">
+            <div>
+                <div class="document-modal-title" id="document-preview-title">文档预览</div>
+                <div class="document-modal-meta" id="document-preview-meta"></div>
+            </div>
 
-let currentSessionId = null;
-let sessions = [];
-let documents = [];
+            <button class="document-modal-close" onclick="closeDocumentPreview()">×</button>
+        </div>
+
+        <pre class="document-preview-content" id="document-preview-content"></pre>
+    </div>
+</div>
+
+<script>
+    const chatBox = document.getElementById("chat-box");
+    const input = document.getElementById("user-input");
+    const sendBtn = document.getElementById("send-btn");
+    const statusText = document.getElementById("status");
+    const themeBtn = document.getElementById("theme-btn");
+    const sessionList = document.getElementById("session-list");
+    const currentSessionTitle = document.getElementById("current-session-title");
+    const documentList = document.getElementById("document-list");
+
+    let currentSessionId = null;
+    let sessions = [];
+    let documents = [];
 
     function updateStatus(text) {
         statusText.textContent = text;
     }
 
-    function currentTime() {
-        return new Date().toLocaleString();
-    }
-
     function renderMarkdown(content) {
+        if (!window.marked || !window.DOMPurify) {
+            return content || "";
+        }
+
         const rawHtml = marked.parse(content || "");
         return DOMPurify.sanitize(rawHtml);
     }
@@ -591,45 +569,34 @@ let documents = [];
         }
     }
 
-    function scrollToBottom() {
-        chatBox.scrollTop = chatBox.scrollHeight;
-    }
-
     function showEmptyState() {
         chatBox.innerHTML = `
-            <div class="empty-state" id="empty-state">
-                <h2>开启一个新会话</h2>
-                <p>可以问我 Python、AI 项目、代码报错、学习规划等问题。</p>
+            <div class="empty-state">
+                <div>当前会话暂无消息</div>
+                <div>你可以直接提问，也可以先上传 txt / md / pdf 文档后进行知识库问答。</div>
             </div>
         `;
     }
 
-    function removeEmptyState() {
-        const empty = document.getElementById("empty-state");
-        if (empty) {
-            empty.remove();
+    function addMessage(role, content, createdAt = "") {
+        const oldEmpty = chatBox.querySelector(".empty-state");
+        if (oldEmpty) {
+            oldEmpty.remove();
         }
-    }
-
-    function addMessage(role, content, createdAt = "", options = {}) {
-        removeEmptyState();
-
-        const renderNow = options.renderMarkdownNow !== false;
 
         const row = document.createElement("div");
-        row.className = `message-row ${role === "user" ? "user" : "assistant"}`;
+        row.className = `message-row ${role}`;
 
         const avatar = document.createElement("div");
         avatar.className = "avatar";
-        avatar.textContent = role === "user" ? "你" : "AI";
+        avatar.textContent = role === "user" ? "我" : "AI";
 
         const bubble = document.createElement("div");
         bubble.className = "bubble";
 
         const contentDiv = document.createElement("div");
-        contentDiv.className = "content";
 
-        if (role === "assistant" && renderNow) {
+        if (role === "assistant") {
             contentDiv.innerHTML = renderMarkdown(content);
         } else {
             contentDiv.textContent = content;
@@ -638,28 +605,32 @@ let documents = [];
         bubble.appendChild(contentDiv);
 
         if (createdAt) {
-            const timeDiv = document.createElement("div");
-            timeDiv.className = "time";
-            timeDiv.textContent = createdAt;
-            bubble.appendChild(timeDiv);
+            const time = document.createElement("div");
+            time.className = "time";
+            time.textContent = createdAt;
+            bubble.appendChild(time);
         }
 
         row.appendChild(avatar);
         row.appendChild(bubble);
         chatBox.appendChild(row);
 
-        highlightCode(bubble);
-        scrollToBottom();
+        if (role === "assistant") {
+            highlightCode(contentDiv);
+        }
 
-        return {
-            row,
-            bubble,
-            contentDiv
-        };
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        return contentDiv;
     }
 
     function renderSessions() {
         sessionList.innerHTML = "";
+
+        if (!sessions || sessions.length === 0) {
+            sessionList.innerHTML = `<div class="empty-session">暂无会话</div>`;
+            return;
+        }
 
         sessions.forEach(session => {
             const item = document.createElement("div");
@@ -669,14 +640,16 @@ let documents = [];
                 item.classList.add("active");
             }
 
-            item.onclick = () => switchSession(session.id);
+            item.onclick = () => {
+                switchSession(session.id);
+            };
 
             const info = document.createElement("div");
             info.className = "session-info";
 
             const name = document.createElement("div");
             name.className = "session-name";
-            name.textContent = session.title || "新会话";
+            name.textContent = session.title;
 
             const meta = document.createElement("div");
             meta.className = "session-meta";
@@ -689,6 +662,7 @@ let documents = [];
             delBtn.className = "delete-session";
             delBtn.textContent = "×";
             delBtn.title = "删除会话";
+
             delBtn.onclick = (event) => {
                 event.stopPropagation();
                 deleteSession(session.id);
@@ -696,14 +670,12 @@ let documents = [];
 
             item.appendChild(info);
             item.appendChild(delBtn);
+
             sessionList.appendChild(item);
         });
 
         const current = sessions.find(s => s.id === currentSessionId);
-
-        if (current) {
-            currentSessionTitle.textContent = current.title || "新会话";
-        }
+        currentSessionTitle.textContent = current ? current.title : "当前会话";
     }
 
     async function loadSessions() {
@@ -716,70 +688,28 @@ let documents = [];
             currentSessionId = data.current_session_id;
         }
 
-        const exists = sessions.some(s => s.id === currentSessionId);
-
-        if (!exists && sessions.length > 0) {
-            currentSessionId = sessions[0].id;
-        }
-
         renderSessions();
     }
 
-    async function loadHistory(sessionId = currentSessionId) {
-        if (!sessionId) {
-            showEmptyState();
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/history?session_id=${sessionId}`);
-            const data = await response.json();
-
-            currentSessionId = data.session_id;
-            chatBox.innerHTML = "";
-
-            if (!data.messages || data.messages.length === 0) {
-                showEmptyState();
-                updateStatus("当前会话为空");
-                return;
-            }
-
-            data.messages.forEach(msg => {
-                addMessage(msg.role, msg.content, msg.created_at);
-            });
-
-            updateStatus("历史记录已加载");
-
-        } catch (error) {
-            showEmptyState();
-            updateStatus("历史记录加载失败");
-        }
-    }
-
     async function createNewSession() {
-        try {
-            const response = await fetch("/api/sessions", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    title: "新会话"
-                })
-            });
+        const response = await fetch("/api/sessions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                title: "新会话"
+            })
+        });
 
-            const data = await response.json();
+        const data = await response.json();
 
-            currentSessionId = data.session.id;
+        currentSessionId = data.session.id;
 
-            await loadSessions();
-            await loadHistory(currentSessionId);
+        await loadSessions();
+        await loadHistory(currentSessionId);
 
-            updateStatus("新会话已创建");
-
-        } catch (error) {
-            alert("新建会话失败：" + error.message);
-        }
+        updateStatus("新会话已创建");
     }
 
     async function switchSession(sessionId) {
@@ -790,6 +720,7 @@ let documents = [];
         currentSessionId = sessionId;
         renderSessions();
         await loadHistory(currentSessionId);
+
         updateStatus("已切换会话");
     }
 
@@ -800,24 +731,231 @@ let documents = [];
             return;
         }
 
+        const response = await fetch(`/api/sessions/${sessionId}`, {
+            method: "DELETE"
+        });
+
+        const data = await response.json();
+
+        sessions = data.sessions || [];
+        currentSessionId = data.current_session_id;
+
+        renderSessions();
+        await loadHistory(currentSessionId);
+
+        updateStatus("会话已删除");
+    }
+
+    async function loadHistory(sessionId = currentSessionId) {
+        if (!sessionId) {
+            showEmptyState();
+            return;
+        }
+
+        const response = await fetch(`/api/history?session_id=${sessionId}`);
+        const data = await response.json();
+
+        chatBox.innerHTML = "";
+
+        const messages = data.messages || [];
+
+        if (messages.length === 0) {
+            showEmptyState();
+            return;
+        }
+
+        messages.forEach(msg => {
+            addMessage(msg.role, msg.content, msg.created_at);
+        });
+    }
+
+    async function loadDocuments() {
         try {
-            const response = await fetch(`/api/sessions/${sessionId}`, {
-                method: "DELETE"
+            const response = await fetch("/api/documents");
+            const data = await response.json();
+
+            documents = data.documents || [];
+            renderDocuments();
+
+        } catch (error) {
+            console.error("文档列表加载失败：", error);
+        }
+    }
+
+    function renderDocuments() {
+        documentList.innerHTML = "";
+
+        if (!documents || documents.length === 0) {
+            documentList.innerHTML = `<div class="empty-document">暂无文档</div>`;
+            return;
+        }
+
+        documents.forEach(doc => {
+            const item = document.createElement("div");
+            item.className = "document-item";
+
+            item.onclick = () => {
+                previewDocument(doc.id);
+            };
+
+            const info = document.createElement("div");
+            info.className = "document-info";
+
+            const name = document.createElement("div");
+            name.className = "document-name";
+            name.textContent = doc.filename;
+
+            const meta = document.createElement("div");
+            meta.className = "document-meta";
+            meta.textContent = doc.created_at || "";
+
+            info.appendChild(name);
+            info.appendChild(meta);
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "delete-document";
+            delBtn.textContent = "×";
+            delBtn.title = "删除文档";
+
+            delBtn.onclick = (event) => {
+                event.stopPropagation();
+                deleteDocument(doc.id);
+            };
+
+            item.appendChild(info);
+            item.appendChild(delBtn);
+            documentList.appendChild(item);
+        });
+    }
+
+    async function uploadDocument() {
+        const fileInput = document.getElementById("document-file");
+        const file = fileInput.files[0];
+
+        if (!file) {
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+
+        updateStatus("正在上传文档...");
+
+        try {
+            const response = await fetch("/api/documents/upload", {
+                method: "POST",
+                body: formData
             });
 
             const data = await response.json();
 
-            sessions = data.sessions || [];
-            currentSessionId = data.current_session_id;
+            if (!response.ok) {
+                alert(data.error || "上传失败");
+                updateStatus("文档上传失败");
+                return;
+            }
 
-            renderSessions();
-            await loadHistory(currentSessionId);
+            fileInput.value = "";
 
-            updateStatus("会话已删除");
+            await loadDocuments();
+
+            updateStatus("文档上传成功");
+
+        } catch (error) {
+            alert("上传失败：" + error.message);
+            updateStatus("文档上传失败");
+        }
+    }
+
+    async function previewDocument(documentId) {
+        try {
+            updateStatus("正在加载文档内容...");
+
+            const response = await fetch(`/api/documents/${documentId}`);
+            const data = await response.json();
+
+            if (!response.ok) {
+                alert(data.error || "文档加载失败");
+                updateStatus("文档加载失败");
+                return;
+            }
+
+            const modalMask = document.getElementById("document-modal-mask");
+            const title = document.getElementById("document-preview-title");
+            const meta = document.getElementById("document-preview-meta");
+            const content = document.getElementById("document-preview-content");
+
+            title.textContent = data.filename;
+
+            let metaText = `上传时间：${data.created_at || ""} | 提取字符数：${data.content_length}`;
+
+            if (data.is_truncated) {
+                metaText += " | 当前仅显示前 12000 字";
+            }
+
+            meta.textContent = metaText;
+
+            content.textContent = data.content || "该文档没有提取到可预览内容。";
+
+            modalMask.classList.add("show");
+
+            updateStatus("文档内容已加载");
+
+        } catch (error) {
+            alert("文档预览失败：" + error.message);
+            updateStatus("文档预览失败");
+        }
+    }
+
+    function closeDocumentPreview() {
+        const modalMask = document.getElementById("document-modal-mask");
+        modalMask.classList.remove("show");
+    }
+
+    async function deleteDocument(documentId) {
+        const ok = confirm("确定要删除这个文档吗？");
+
+        if (!ok) {
+            return;
+        }
+
+        try {
+            await fetch(`/api/documents/${documentId}`, {
+                method: "DELETE"
+            });
+
+            await loadDocuments();
+
+            updateStatus("文档已删除");
 
         } catch (error) {
             alert("删除失败：" + error.message);
         }
+    }
+
+    async function clearChat() {
+        const ok = confirm("确定要清空当前会话吗？");
+
+        if (!ok) {
+            return;
+        }
+
+        await fetch("/api/clear", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                session_id: currentSessionId
+            })
+        });
+
+        chatBox.innerHTML = "";
+        showEmptyState();
+
+        await loadSessions();
+
+        updateStatus("当前会话已清空");
     }
 
     async function sendMessage() {
@@ -827,22 +965,15 @@ let documents = [];
             return;
         }
 
-        if (!currentSessionId) {
-            await loadSessions();
-        }
-
-        addMessage("user", message, currentTime());
-
         input.value = "";
-        input.style.height = "auto";
+        input.style.height = "46px";
+
+        addMessage("user", message);
+
         sendBtn.disabled = true;
         updateStatus("AI 正在回复...");
 
-        const aiMessage = addMessage("assistant", "", currentTime(), {
-            renderMarkdownNow: false
-        });
-
-        let fullText = "";
+        const assistantContentDiv = addMessage("assistant", "");
 
         try {
             const response = await fetch("/api/chat/stream", {
@@ -857,11 +988,15 @@ let documents = [];
             });
 
             if (!response.ok) {
-                throw new Error("请求失败，状态码：" + response.status);
+                assistantContentDiv.textContent = "请求失败，状态码：" + response.status;
+                updateStatus("请求失败");
+                return;
             }
 
             const reader = response.body.getReader();
             const decoder = new TextDecoder("utf-8");
+
+            let fullText = "";
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -872,168 +1007,22 @@ let documents = [];
 
                 const chunk = decoder.decode(value, { stream: true });
                 fullText += chunk;
-
-                aiMessage.contentDiv.textContent = fullText;
-                scrollToBottom();
+                assistantContentDiv.textContent = fullText;
+                chatBox.scrollTop = chatBox.scrollHeight;
             }
 
-            if (fullText.trim()) {
-                aiMessage.contentDiv.innerHTML = renderMarkdown(fullText);
-                highlightCode(aiMessage.bubble);
-            } else {
-                aiMessage.contentDiv.textContent = "没有收到 AI 回复。";
-            }
+            assistantContentDiv.innerHTML = renderMarkdown(fullText);
+            highlightCode(assistantContentDiv);
 
             await loadSessions();
+
             updateStatus("回复完成");
 
         } catch (error) {
-            aiMessage.contentDiv.textContent = "请求失败：" + error.message;
+            assistantContentDiv.textContent = "请求失败：" + error.message;
             updateStatus("请求失败");
         } finally {
             sendBtn.disabled = false;
-            input.focus();
-        }
-    }
-
-    async function loadDocuments() {
-    try {
-        const response = await fetch("/api/documents");
-        const data = await response.json();
-
-        documents = data.documents || [];
-        renderDocuments();
-
-    } catch (error) {
-        console.error("文档列表加载失败：", error);
-    }
-}
-
-function renderDocuments() {
-    documentList.innerHTML = "";
-
-    if (!documents || documents.length === 0) {
-        documentList.innerHTML = `<div class="empty-document">暂无文档</div>`;
-        return;
-    }
-
-    documents.forEach(doc => {
-        const item = document.createElement("div");
-        item.className = "document-item";
-
-        const info = document.createElement("div");
-        info.className = "document-info";
-
-        const name = document.createElement("div");
-        name.className = "document-name";
-        name.textContent = doc.filename;
-
-        const meta = document.createElement("div");
-        meta.className = "document-meta";
-        meta.textContent = doc.created_at || "";
-
-        info.appendChild(name);
-        info.appendChild(meta);
-
-        const delBtn = document.createElement("button");
-        delBtn.className = "delete-document";
-        delBtn.textContent = "×";
-        delBtn.title = "删除文档";
-
-        delBtn.onclick = () => {
-            deleteDocument(doc.id);
-        };
-
-        item.appendChild(info);
-        item.appendChild(delBtn);
-        documentList.appendChild(item);
-    });
-}
-
-async function uploadDocument() {
-    const fileInput = document.getElementById("document-file");
-    const file = fileInput.files[0];
-
-    if (!file) {
-        return;
-    }
-
-    const formData = new FormData();
-    formData.append("file", file);
-
-    updateStatus("正在上传文档...");
-
-    try {
-        const response = await fetch("/api/documents/upload", {
-            method: "POST",
-            body: formData
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            alert(data.error || "上传失败");
-            updateStatus("文档上传失败");
-            return;
-        }
-
-        fileInput.value = "";
-
-        await loadDocuments();
-
-        updateStatus("文档上传成功");
-
-    } catch (error) {
-        alert("上传失败：" + error.message);
-        updateStatus("文档上传失败");
-    }
-}
-
-async function deleteDocument(documentId) {
-    const ok = confirm("确定要删除这个文档吗？");
-
-    if (!ok) {
-        return;
-    }
-
-    try {
-        await fetch(`/api/documents/${documentId}`, {
-            method: "DELETE"
-        });
-
-        await loadDocuments();
-
-        updateStatus("文档已删除");
-
-    } catch (error) {
-        alert("删除失败：" + error.message);
-    }
-}
-    async function clearChat() {
-        const ok = confirm("确定要清空当前会话的聊天记录吗？");
-
-        if (!ok) {
-            return;
-        }
-
-        try {
-            await fetch("/api/clear", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    session_id: currentSessionId
-                })
-            });
-
-            showEmptyState();
-            await loadSessions();
-
-            updateStatus("当前会话已清空");
-
-        } catch (error) {
-            alert("清空失败：" + error.message);
         }
     }
 
@@ -1044,35 +1033,51 @@ async function deleteDocument(documentId) {
         document.documentElement.setAttribute("data-theme", nextTheme);
         localStorage.setItem("theme", nextTheme);
 
-        themeBtn.textContent = nextTheme === "dark" ? "切换浅色模式" : "切换深色模式";
+        initThemeButton();
     }
 
     function initThemeButton() {
-        const currentTheme = document.documentElement.getAttribute("data-theme");
-        themeBtn.textContent = currentTheme === "dark" ? "切换浅色模式" : "切换深色模式";
+        const theme = document.documentElement.getAttribute("data-theme");
+
+        if (theme === "dark") {
+            themeBtn.textContent = "切换浅色模式";
+        } else {
+            themeBtn.textContent = "切换深色模式";
+        }
     }
 
-    input.addEventListener("keydown", function(event) {
+    input.addEventListener("keydown", function (event) {
         if (event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             sendMessage();
         }
     });
 
-    input.addEventListener("input", function() {
-        input.style.height = "auto";
-        input.style.height = input.scrollHeight + "px";
+    input.addEventListener("input", function () {
+        input.style.height = "46px";
+        input.style.height = Math.min(input.scrollHeight, 150) + "px";
+    });
+
+    document.addEventListener("keydown", function (event) {
+        if (event.key === "Escape") {
+            closeDocumentPreview();
+        }
     });
 
     async function initApp() {
-    initThemeButton();
-    await loadSessions();
-    await loadHistory(currentSessionId);
-    await loadDocuments();
-}
+        const savedTheme = localStorage.getItem("theme") || "light";
+        document.documentElement.setAttribute("data-theme", savedTheme);
+
+        initThemeButton();
+
+        await loadSessions();
+        await loadHistory(currentSessionId);
+        await loadDocuments();
+
+        updateStatus("就绪");
+    }
 
     initApp();
 </script>
-
 </body>
 </html>

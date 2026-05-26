@@ -6,6 +6,7 @@ import os
 import httpx
 import sqlite3
 import json
+import re
 from datetime import datetime
 
 load_dotenv()
@@ -40,11 +41,16 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def get_file_ext(filename):
+    if "." not in filename:
+        return ""
+    return filename.rsplit(".", 1)[1].lower()
+
+
 def read_uploaded_file(file_path, ext):
     if ext == "pdf":
         try:
             reader = PdfReader(file_path)
-
             texts = []
 
             for i, page in enumerate(reader.pages):
@@ -69,6 +75,80 @@ def read_uploaded_file(file_path, ext):
     except UnicodeDecodeError:
         with open(file_path, "r", encoding="gbk", errors="ignore") as f:
             return f.read()
+
+
+def split_text(text, chunk_size=900, overlap=120):
+    text = (text or "").strip()
+
+    if not text:
+        return []
+
+    chunks = []
+    start = 0
+
+    while start < len(text):
+        end = start + chunk_size
+        chunk = text[start:end]
+
+        if chunk.strip():
+            chunks.append(chunk.strip())
+
+        start = end - overlap
+
+        if start < 0:
+            start = 0
+
+        if start >= len(text):
+            break
+
+    return chunks
+
+
+def tokenize_text(text):
+    text = (text or "").lower()
+
+    stop_words = {
+        "的", "了", "是", "在", "和", "与", "及", "或", "我", "你", "他", "她", "它",
+        "我们", "你们", "他们", "什么", "怎么", "如何", "根据", "上传", "文档",
+        "请问", "一下", "这个", "那个", "一个", "可以", "进行", "pdf", "txt", "md",
+        "总结", "概括", "主要", "内容", "讲了", "什么"
+    }
+
+    tokens = []
+
+    english_words = re.findall(r"[a-zA-Z0-9_]+", text)
+    tokens.extend([w for w in english_words if len(w) >= 2 and w not in stop_words])
+
+    chinese_parts = re.findall(r"[\u4e00-\u9fff]+", text)
+
+    for part in chinese_parts:
+        chars = [ch for ch in part if ch not in stop_words]
+
+        for i in range(len(chars)):
+            if i + 2 <= len(chars):
+                tokens.append("".join(chars[i:i + 2]))
+
+            if i + 3 <= len(chars):
+                tokens.append("".join(chars[i:i + 3]))
+
+            if i + 4 <= len(chars):
+                tokens.append("".join(chars[i:i + 4]))
+
+    return tokens
+
+
+def score_chunk(query_tokens, chunk):
+    if not query_tokens:
+        return 0
+
+    chunk_lower = (chunk or "").lower()
+    score = 0
+
+    for token in query_tokens:
+        if token in chunk_lower:
+            score += len(token)
+
+    return score
 
 
 def init_db():
@@ -103,6 +183,21 @@ def init_db():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS document_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            document_id INTEGER NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_document_chunks_document_id
+        ON document_chunks(document_id)
+    """)
+
     cursor.execute("PRAGMA table_info(messages)")
     columns = [row["name"] for row in cursor.fetchall()]
 
@@ -129,6 +224,52 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+    ensure_document_chunks()
+
+
+def create_document_chunks(document_id, content):
+    chunks = split_text(content, chunk_size=900, overlap=120)
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM document_chunks WHERE document_id = ?", (document_id,))
+
+    now = now_text()
+
+    for index, chunk in enumerate(chunks):
+        cursor.execute(
+            """
+            INSERT INTO document_chunks (document_id, chunk_index, content, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (document_id, index, chunk, now)
+        )
+
+    conn.commit()
+    conn.close()
+
+    return len(chunks)
+
+
+def ensure_document_chunks():
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT d.id, d.content
+        FROM documents d
+        LEFT JOIN document_chunks c ON c.document_id = d.id
+        GROUP BY d.id
+        HAVING COUNT(c.id) = 0
+    """)
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    for row in rows:
+        create_document_chunks(row["id"], row["content"] or "")
 
 
 def create_session(title="新会话"):
@@ -367,83 +508,8 @@ def has_documents():
     return row["count"] > 0
 
 
-def tokenize_text(text):
-    import re
-
-    text = text.lower()
-
-    stop_words = {
-        "的", "了", "是", "在", "和", "与", "及", "或", "我", "你", "他", "她", "它",
-        "我们", "你们", "他们", "什么", "怎么", "如何", "根据", "上传", "文档",
-        "请问", "一下", "这个", "那个", "一个", "可以", "进行", "pdf", "txt", "md"
-    }
-
-    tokens = []
-
-    english_words = re.findall(r"[a-zA-Z0-9_]+", text)
-    tokens.extend([w for w in english_words if len(w) >= 2 and w not in stop_words])
-
-    chinese_parts = re.findall(r"[\u4e00-\u9fff]+", text)
-
-    for part in chinese_parts:
-        chars = [ch for ch in part if ch not in stop_words]
-
-        for i in range(len(chars)):
-            if i + 2 <= len(chars):
-                tokens.append("".join(chars[i:i + 2]))
-
-            if i + 3 <= len(chars):
-                tokens.append("".join(chars[i:i + 3]))
-
-            if i + 4 <= len(chars):
-                tokens.append("".join(chars[i:i + 4]))
-
-    return tokens
-
-
-def split_text(text, chunk_size=800, overlap=100):
-    text = text.strip()
-
-    if not text:
-        return []
-
-    chunks = []
-    start = 0
-
-    while start < len(text):
-        end = start + chunk_size
-        chunk = text[start:end]
-
-        if chunk.strip():
-            chunks.append(chunk.strip())
-
-        start = end - overlap
-
-        if start < 0:
-            start = 0
-
-        if start >= len(text):
-            break
-
-    return chunks
-
-
-def score_chunk(query_tokens, chunk):
-    if not query_tokens:
-        return 0
-
-    chunk_lower = chunk.lower()
-    score = 0
-
-    for token in query_tokens:
-        if token in chunk_lower:
-            score += len(token)
-
-    return score
-
-
-def get_relevant_document_context(query, max_chars=6000, top_k=5):
-    query_lower = query.lower()
+def get_relevant_document_context(query, max_chars=6000, top_k=6):
+    query_lower = (query or "").lower()
 
     want_pdf = "pdf" in query_lower
     want_txt = "txt" in query_lower or "md" in query_lower or "markdown" in query_lower
@@ -459,9 +525,14 @@ def get_relevant_document_context(query, max_chars=6000, top_k=5):
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT filename, content
-        FROM documents
-        ORDER BY id DESC
+        SELECT 
+            d.id AS document_id,
+            d.filename AS filename,
+            c.chunk_index AS chunk_index,
+            c.content AS chunk_content
+        FROM document_chunks c
+        JOIN documents d ON d.id = c.document_id
+        ORDER BY d.id DESC, c.chunk_index ASC
     """)
 
     rows = cursor.fetchall()
@@ -470,17 +541,20 @@ def get_relevant_document_context(query, max_chars=6000, top_k=5):
     if not rows:
         return ""
 
-    if want_pdf:
-        rows = [
-            row for row in rows
-            if row["filename"].lower().endswith(".pdf")
-        ]
-    elif want_txt:
-        rows = [
-            row for row in rows
-            if row["filename"].lower().endswith(".txt")
-            or row["filename"].lower().endswith(".md")
-        ]
+    filtered_rows = []
+
+    for row in rows:
+        filename = row["filename"].lower()
+
+        if want_pdf and not filename.endswith(".pdf"):
+            continue
+
+        if want_txt and not (filename.endswith(".txt") or filename.endswith(".md")):
+            continue
+
+        filtered_rows.append(row)
+
+    rows = filtered_rows
 
     if not rows:
         return ""
@@ -491,36 +565,28 @@ def get_relevant_document_context(query, max_chars=6000, top_k=5):
 
         for row in selected_rows:
             filename = row["filename"]
-            content = (row["content"] or "").strip()
+            chunk_index = row["chunk_index"]
+            chunk = row["chunk_content"] or ""
 
-            if not content:
-                continue
+            part = f"【文档：{filename}｜片段：{chunk_index + 1}】\n{chunk}"
 
-            chunks = split_text(content, chunk_size=1200, overlap=100)
+            if used_chars + len(part) > max_chars:
+                remaining = max_chars - used_chars
 
-            for chunk in chunks:
-                part = f"【文档：{filename}】\n{chunk}"
-
-                if used_chars + len(part) > max_chars:
-                    remaining = max_chars - used_chars
-
-                    if remaining <= 0:
-                        break
-
-                    part = part[:remaining]
-
-                parts.append(part)
-                used_chars += len(part)
-
-                if used_chars >= max_chars:
+                if remaining <= 0:
                     break
+
+                part = part[:remaining]
+
+            parts.append(part)
+            used_chars += len(part)
 
             if used_chars >= max_chars:
                 break
 
         return "\n\n".join(parts)
 
-    if want_pdf and is_summary_request:
+    if is_summary_request and want_pdf:
         return build_context_from_rows(rows)
 
     query_tokens = tokenize_text(query)
@@ -528,20 +594,18 @@ def get_relevant_document_context(query, max_chars=6000, top_k=5):
     candidates = []
 
     for row in rows:
-        filename = row["filename"]
-        content = row["content"] or ""
+        score = score_chunk(query_tokens, row["chunk_content"] or "")
 
-        chunks = split_text(content)
+        if score > 0:
+            candidates.append({
+                "filename": row["filename"],
+                "chunk_index": row["chunk_index"],
+                "chunk": row["chunk_content"],
+                "score": score
+            })
 
-        for chunk in chunks:
-            score = score_chunk(query_tokens, chunk)
-
-            if score > 0:
-                candidates.append({
-                    "filename": filename,
-                    "chunk": chunk,
-                    "score": score
-                })
+    if not candidates and is_summary_request:
+        return build_context_from_rows(rows)
 
     if not candidates and want_pdf:
         return build_context_from_rows(rows)
@@ -556,9 +620,10 @@ def get_relevant_document_context(query, max_chars=6000, top_k=5):
 
     for item in candidates[:top_k]:
         filename = item["filename"]
+        chunk_index = item["chunk_index"]
         chunk = item["chunk"]
 
-        part = f"【文档：{filename}】\n{chunk}"
+        part = f"【文档：{filename}｜片段：{chunk_index + 1}】\n{chunk}"
 
         if used_chars + len(part) > max_chars:
             remaining = max_chars - used_chars
@@ -708,9 +773,15 @@ def api_list_documents():
     cursor = conn.cursor()
 
     cursor.execute("""
-        SELECT id, filename, created_at
-        FROM documents
-        ORDER BY id DESC
+        SELECT 
+            d.id,
+            d.filename,
+            d.created_at,
+            COUNT(c.id) AS chunk_count
+        FROM documents d
+        LEFT JOIN document_chunks c ON c.document_id = d.id
+        GROUP BY d.id
+        ORDER BY d.id DESC
     """)
 
     rows = cursor.fetchall()
@@ -720,13 +791,58 @@ def api_list_documents():
         {
             "id": row["id"],
             "filename": row["filename"],
-            "created_at": row["created_at"]
+            "created_at": row["created_at"],
+            "chunk_count": row["chunk_count"]
         }
         for row in rows
     ]
 
     return jsonify({
         "documents": documents
+    })
+
+
+@app.route("/api/documents/<int:document_id>", methods=["GET"])
+def api_get_document(document_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+        SELECT id, filename, content, created_at
+        FROM documents
+        WHERE id = ?
+        """,
+        (document_id,)
+    )
+
+    row = cursor.fetchone()
+
+    if not row:
+        conn.close()
+        return jsonify({"error": "文档不存在"}), 404
+
+    cursor.execute(
+        "SELECT COUNT(*) AS chunk_count FROM document_chunks WHERE document_id = ?",
+        (document_id,)
+    )
+
+    chunk_row = cursor.fetchone()
+    conn.close()
+
+    content = row["content"] or ""
+
+    max_preview_chars = 12000
+    is_truncated = len(content) > max_preview_chars
+
+    return jsonify({
+        "id": row["id"],
+        "filename": row["filename"],
+        "created_at": row["created_at"],
+        "content": content[:max_preview_chars],
+        "content_length": len(content),
+        "chunk_count": chunk_row["chunk_count"],
+        "is_truncated": is_truncated
     })
 
 
@@ -748,7 +864,7 @@ def api_upload_document():
     original_filename = file.filename
     safe_filename = secure_filename(original_filename)
 
-    ext = original_filename.rsplit(".", 1)[1].lower()
+    ext = get_file_ext(original_filename)
 
     if not safe_filename:
         safe_filename = f"document_{datetime.now().strftime('%Y%m%d%H%M%S')}.{ext}"
@@ -766,12 +882,18 @@ def api_upload_document():
         (original_filename, content, now_text())
     )
 
+    document_id = cursor.lastrowid
+
     conn.commit()
     conn.close()
 
+    chunk_count = create_document_chunks(document_id, content)
+
     return jsonify({
         "message": "文件上传成功",
-        "filename": original_filename
+        "filename": original_filename,
+        "document_id": document_id,
+        "chunk_count": chunk_count
     })
 
 
@@ -780,6 +902,7 @@ def api_delete_document(document_id):
     conn = get_conn()
     cursor = conn.cursor()
 
+    cursor.execute("DELETE FROM document_chunks WHERE document_id = ?", (document_id,))
     cursor.execute("DELETE FROM documents WHERE id = ?", (document_id,))
 
     conn.commit()
